@@ -124,6 +124,7 @@ export default function PublicPage() {
       <footer className="public-footer">
         <span>오늘픽스 · Instagram product links</span>
         <Link to="/privacy">개인정보처리방침</Link>
+        <Link to="/admin">운영자 로그인</Link>
       </footer>
     </main>
   )
