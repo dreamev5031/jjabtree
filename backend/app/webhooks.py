@@ -38,6 +38,10 @@ def trigger_matches(comment_text: str, trigger_phrase: str) -> bool:
     return bool(trigger) and trigger in normalize_text(comment_text)
 
 
+def format_product_number(product_id: int) -> str:
+    return str(product_id).zfill(3)
+
+
 def _entry_changes(entry: dict[str, Any]) -> Iterable[dict[str, Any]]:
     """Yield both webhook payload layouts used by Meta Instagram products.
 
@@ -115,7 +119,8 @@ async def process_comment_event(
         logger.info("중복 댓글 이벤트 건너뜀: comment_id=%s", event.comment_id)
         return
 
-    message = secrets.choice(DM_TEMPLATES).format(번호=product["id"])
+    product_number = format_product_number(product["id"])
+    message = secrets.choice(DM_TEMPLATES).format(번호=product_number)
     try:
         await instagram.send_private_reply(event.comment_id, message)
     except Exception as exc:  # noqa: BLE001 - webhook worker must never crash the server
