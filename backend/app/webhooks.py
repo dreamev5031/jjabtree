@@ -38,10 +38,28 @@ def trigger_matches(comment_text: str, trigger_phrase: str) -> bool:
     return bool(trigger) and trigger in normalize_text(comment_text)
 
 
+def _entry_changes(entry: dict[str, Any]) -> Iterable[dict[str, Any]]:
+    """Yield both webhook payload layouts used by Meta Instagram products.
+
+    Some configurations wrap events in ``entry[].changes[]`` while others put
+    ``field`` and ``value`` directly on each ``entry`` object.
+    """
+    changes = entry.get("changes")
+    if isinstance(changes, list):
+        for change in changes:
+            if isinstance(change, dict):
+                yield change
+
+    if "field" in entry and "value" in entry:
+        yield entry
+
+
 def extract_comment_events(payload: dict[str, Any]) -> list[CommentEvent]:
     events: list[CommentEvent] = []
     for entry in payload.get("entry", []):
-        for change in entry.get("changes", []):
+        if not isinstance(entry, dict):
+            continue
+        for change in _entry_changes(entry):
             if change.get("field") not in {"comments", "live_comments"}:
                 continue
             raw_value = change.get("value")
