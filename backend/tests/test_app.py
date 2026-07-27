@@ -2,7 +2,13 @@ from __future__ import annotations
 
 from unittest.mock import AsyncMock
 
-from app.webhooks import CommentEvent, extract_comment_events, process_comment_event, trigger_matches
+from app.webhooks import (
+    CommentEvent,
+    extract_comment_events,
+    format_product_number,
+    process_comment_event,
+    trigger_matches,
+)
 
 
 def test_health(client):
@@ -33,6 +39,13 @@ def test_trigger_matching_is_case_and_space_tolerant():
     assert trigger_matches("  링 크   주세요 ", "링 크")
     assert trigger_matches("LINK 부탁해요", "link")
     assert not trigger_matches("가격 알려줘", "링크")
+
+
+def test_product_number_is_zero_padded():
+    assert format_product_number(1) == "001"
+    assert format_product_number(12) == "012"
+    assert format_product_number(123) == "123"
+    assert format_product_number(1000) == "1000"
 
 
 def test_extract_comment_webhook_event():
@@ -119,5 +132,8 @@ def test_duplicate_comment_sends_only_once(settings):
 
     assert product["id"] == 1
     assert instagram.send_private_reply.await_count == 1
+    sent_message = instagram.send_private_reply.await_args.args[1]
+    assert "001번" in sent_message
     logs = database.list_dm_logs()
     assert logs[0]["status"] == "sent"
+    assert "001번" in logs[0]["dm_message"]
