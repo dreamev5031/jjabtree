@@ -38,6 +38,15 @@ a { color: inherit; }
 .product-copy > span { font-size: 12px; font-weight: 750; color: var(--accent-dark); }
 .public-footer { margin-top: 28px; text-align: center; font-size: 11px; color: #aaa39a; }
 
+.privacy-shell { width: min(100%, 680px); }
+.privacy-header h1 { font-size: clamp(27px, 7vw, 38px); }
+.privacy-card { display: grid; gap: 24px; padding: 24px; background: var(--paper); border: 1px solid var(--line); border-radius: 22px; box-shadow: var(--shadow); }
+.privacy-card section { display: grid; gap: 10px; }
+.privacy-card h2 { margin: 0; font-size: 18px; letter-spacing: -0.03em; }
+.privacy-card p, .privacy-card ul { margin: 0; color: var(--muted); font-size: 14px; line-height: 1.75; }
+.privacy-card ul { padding-left: 20px; }
+.privacy-back-link { display: block; width: fit-content; margin: 24px auto 0; color: var(--accent-dark); font-size: 13px; font-weight: 750; text-decoration: none; }
+
 .loading { display: flex; align-items: center; justify-content: center; gap: 10px; padding: 32px; color: var(--muted); }
 .spinner { width: 18px; height: 18px; border: 2px solid var(--line); border-top-color: var(--accent); border-radius: 50%; animation: spin .8s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
