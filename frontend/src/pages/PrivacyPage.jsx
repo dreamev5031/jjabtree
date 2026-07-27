@@ -4,7 +4,7 @@ export default function PrivacyPage() {
   return (
     <main className="public-shell privacy-shell">
       <header className="public-header privacy-header">
-        <div className="brand-mark">J</div>
+        <img className="brand-logo" src="/todaypicks-logo.webp" alt="오늘픽스" />
         <p className="eyebrow">JJABTREE PRIVACY</p>
         <h1>짭트리 개인정보처리방침</h1>
         <p>

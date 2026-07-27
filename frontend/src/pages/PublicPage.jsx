@@ -17,7 +17,7 @@ export default function PublicPage() {
   return (
     <main className="public-shell">
       <header className="public-header">
-        <div className="brand-mark">J</div>
+        <img className="brand-logo" src="/todaypicks-logo.webp" alt="오늘픽스" />
         <p className="eyebrow">JJABTREE</p>
         <h1>영상 속 상품 모아보기</h1>
         <p>릴스에서 안내받은 번호의 상품을 눌러 확인하세요.</p>

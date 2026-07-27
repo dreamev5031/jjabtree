@@ -22,7 +22,7 @@ a { color: inherit; }
 
 .public-shell { width: min(100%, 760px); margin: 0 auto; padding: 44px 18px 34px; }
 .public-header { text-align: center; margin-bottom: 30px; }
-.brand-mark { width: 64px; height: 64px; margin: 0 auto 14px; border-radius: 22px; display: grid; place-items: center; color: white; background: var(--ink); font: 800 30px/1 Georgia, serif; box-shadow: var(--shadow); }
+.brand-logo { width: 92px; height: 92px; margin: 0 auto 14px; border-radius: 50%; display: block; object-fit: cover; background: white; border: 1px solid rgba(101, 79, 224, .16); box-shadow: var(--shadow); }
 .eyebrow { margin: 0 0 8px; font-size: 11px; font-weight: 800; letter-spacing: 0.18em; color: var(--accent); }
 .public-header h1, .admin-header h1, .login-card h1 { margin: 0; font-size: clamp(28px, 8vw, 42px); letter-spacing: -0.04em; }
 .public-header > p:last-child { margin: 10px auto 0; color: var(--muted); line-height: 1.55; font-size: 14px; }
