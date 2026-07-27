@@ -37,12 +37,16 @@ class InstagramClient:
     async def list_recent_media(self, limit: int = 24) -> list[dict[str, Any]]:
         fields = "id,caption,media_type,media_url,thumbnail_url,permalink,timestamp"
         url = f"{self.api_root}/{self.settings.ig_business_account_id}/media"
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
-            response = await client.get(
-                url,
-                headers=self.auth_headers,
-                params={"fields": fields, "limit": min(max(limit, 1), 100)},
-            )
+        try:
+            async with httpx.AsyncClient(timeout=self.timeout) as client:
+                response = await client.get(
+                    url,
+                    headers=self.auth_headers,
+                    params={"fields": fields, "limit": min(max(limit, 1), 100)},
+                )
+        except httpx.RequestError as exc:
+            raise InstagramAPIError(f"최근 게시물 조회 실패: Instagram API 연결 오류: {exc}") from exc
+
         if response.is_error:
             raise InstagramAPIError(self._error_message(response, "최근 게시물 조회 실패"))
         payload = response.json()
@@ -56,12 +60,18 @@ class InstagramClient:
         some app/login configurations require subscription only in the App Dashboard.
         """
         url = f"{self.api_root}/{self.settings.ig_business_account_id}/subscribed_apps"
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
-            response = await client.post(
-                url,
-                headers=self.auth_headers,
-                data={"subscribed_fields": "comments"},
-            )
+        try:
+            async with httpx.AsyncClient(timeout=self.timeout) as client:
+                response = await client.post(
+                    url,
+                    headers=self.auth_headers,
+                    data={"subscribed_fields": "comments"},
+                )
+        except httpx.RequestError as exc:
+            detail = f"댓글 웹훅 계정 구독 요청 실패: Instagram API 연결 오류: {exc}"
+            logger.warning(detail)
+            return SubscriptionResult(ok=False, detail=detail)
+
         if response.is_error:
             detail = self._error_message(response, "댓글 웹훅 계정 구독 요청 실패")
             logger.warning(detail)
@@ -79,26 +89,32 @@ class InstagramClient:
             "recipient": {"comment_id": comment_id},
             "message": {"text": message},
         }
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
-            modern = await client.post(
-                modern_url,
-                headers={**self.auth_headers, "Content-Type": "application/json"},
-                json=modern_payload,
-            )
-            if not modern.is_error:
-                return modern.json()
 
-            modern_error = self._error_message(modern, "messages 방식 DM 발송 실패")
-            logger.warning("%s; legacy endpoint로 재시도합니다.", modern_error)
+        try:
+            async with httpx.AsyncClient(timeout=self.timeout) as client:
+                try:
+                    modern = await client.post(
+                        modern_url,
+                        headers={**self.auth_headers, "Content-Type": "application/json"},
+                        json=modern_payload,
+                    )
+                    if not modern.is_error:
+                        return modern.json()
+                    modern_error = self._error_message(modern, "messages 방식 DM 발송 실패")
+                except httpx.RequestError as exc:
+                    modern_error = f"messages 방식 DM 발송 연결 오류: {exc}"
 
-            legacy_url = f"{self.api_root}/{comment_id}/private_replies"
-            legacy = await client.post(
-                legacy_url,
-                headers=self.auth_headers,
-                data={"message": message},
-            )
-            if not legacy.is_error:
-                return legacy.json()
+                logger.warning("%s; legacy endpoint로 재시도합니다.", modern_error)
+                legacy_url = f"{self.api_root}/{comment_id}/private_replies"
+                legacy = await client.post(
+                    legacy_url,
+                    headers=self.auth_headers,
+                    data={"message": message},
+                )
+                if not legacy.is_error:
+                    return legacy.json()
+        except httpx.RequestError as exc:
+            raise InstagramAPIError(f"{modern_error} / private_replies 연결 오류: {exc}") from exc
 
         legacy_error = self._error_message(legacy, "private_replies 방식 DM 발송 실패")
         raise InstagramAPIError(f"{modern_error} / {legacy_error}")
