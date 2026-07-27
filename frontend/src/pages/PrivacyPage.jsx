@@ -5,10 +5,10 @@ export default function PrivacyPage() {
     <main className="public-shell privacy-shell">
       <header className="public-header privacy-header">
         <img className="brand-logo" src="/todaypicks-logo.webp" alt="오늘픽스" />
-        <p className="eyebrow">JJABTREE PRIVACY</p>
-        <h1>짭트리 개인정보처리방침</h1>
+        <p className="eyebrow">TODAYPICKS PRIVACY</p>
+        <h1>오늘픽스 개인정보처리방침</h1>
         <p>
-          짭트리는 인스타그램 댓글에 특정 키워드가 포함된 경우,
+          오늘픽스는 인스타그램 댓글에 특정 키워드가 포함된 경우,
           해당 댓글 작성자에게 자동으로 다이렉트 메시지(DM)를 발송하는 서비스입니다.
         </p>
       </header>
