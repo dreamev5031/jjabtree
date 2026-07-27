@@ -66,6 +66,34 @@ def test_extract_comment_webhook_event():
     ]
 
 
+def test_extract_direct_entry_webhook_event():
+    payload = {
+        "object": "instagram",
+        "entry": [
+            {
+                "id": "ig-account-1",
+                "field": "comments",
+                "value": {
+                    "id": "comment-2",
+                    "text": "링크 부탁해요",
+                    "media": {"id": "media-2"},
+                    "from": {"id": "user-2", "username": "tester2"},
+                },
+            }
+        ],
+    }
+
+    assert extract_comment_events(payload) == [
+        CommentEvent(
+            comment_id="comment-2",
+            media_id="media-2",
+            text="링크 부탁해요",
+            commenter_id="user-2",
+            commenter_username="tester2",
+        )
+    ]
+
+
 def test_duplicate_comment_sends_only_once(settings):
     from app.database import Database
 
