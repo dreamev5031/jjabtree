@@ -6,7 +6,10 @@ import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
 from urllib.parse import urlparse
+from zoneinfo import ZoneInfo
 
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from apscheduler.triggers.cron import CronTrigger
 from fastapi import (
     BackgroundTasks,
     Depends,
@@ -27,6 +30,11 @@ from fastapi.staticfiles import StaticFiles
 from .config import ConfigurationError, Settings
 from .database import Database
 from .instagram import InstagramAPIError, InstagramClient
+from .media_checks import (
+    check_one_product_media,
+    run_scheduled_media_checks,
+    serialize_media_check_result,
+)
 from .schemas import HealthResponse, ProductStatusUpdate
 from .security import require_admin_key, verify_meta_signature
 from .webhooks import extract_comment_events, process_comment_event
@@ -39,19 +47,45 @@ logger = logging.getLogger(__name__)
 
 ALLOWED_IMAGE_TYPES = {"image/jpeg", "image/png", "image/webp", "image/gif"}
 MAX_IMAGE_BYTES = 8 * 1024 * 1024
+SEOUL_TZ = ZoneInfo("Asia/Seoul")
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or Settings.from_env()
     database = Database(settings.db_path)
     instagram = InstagramClient(settings)
+    scheduler = AsyncIOScheduler(timezone=SEOUL_TZ)
     settings.upload_dir.mkdir(parents=True, exist_ok=True)
 
     @asynccontextmanager
     async def lifespan(_: FastAPI):
         database.initialize()
-        logger.info("jjabtree API 시작: db=%s uploads=%s", settings.db_path, settings.upload_dir)
-        yield
+        scheduler.add_job(
+            run_scheduled_media_checks,
+            trigger=CronTrigger(
+                hour=settings.media_check_hour,
+                minute=0,
+                timezone=SEOUL_TZ,
+            ),
+            kwargs={"database": database, "instagram": instagram},
+            id="daily-instagram-media-check",
+            replace_existing=True,
+            coalesce=True,
+            max_instances=1,
+            misfire_grace_time=60 * 60 * 3,
+        )
+        scheduler.start()
+        logger.info(
+            "jjabtree API 시작: db=%s uploads=%s media_check=%02d:00 KST",
+            settings.db_path,
+            settings.upload_dir,
+            settings.media_check_hour,
+        )
+        try:
+            yield
+        finally:
+            scheduler.shutdown(wait=False)
+            logger.info("jjabtree 스케줄러 종료")
 
     app = FastAPI(
         title="jjabtree API",
@@ -62,6 +96,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.settings = settings
     app.state.database = database
     app.state.instagram = instagram
+    app.state.scheduler = scheduler
 
     app.add_middleware(
         CORSMiddleware,
@@ -165,6 +200,36 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise HTTPException(status_code=404, detail="상품을 찾을 수 없습니다.")
         product["photo_url"] = _absolute_photo_url(request, product["photo_url"])
         return {"product": product}
+
+    @app.post(
+        "/api/admin/products/{product_id}/media-check",
+        dependencies=[Depends(admin_guard)],
+    )
+    async def check_product_media(product_id: int, request: Request):
+        product = database.get_product(product_id)
+        if not product:
+            raise HTTPException(status_code=404, detail="상품을 찾을 수 없습니다.")
+
+        try:
+            result, updated = await check_one_product_media(
+                product,
+                database=database,
+                instagram=instagram,
+            )
+        except Exception as exc:  # noqa: BLE001 - manual check must not destabilize API
+            logger.exception("수동 릴스 확인 실패: product_id=%s", product_id)
+            raise HTTPException(
+                status_code=502,
+                detail="릴스 확인 중 예상하지 못한 오류가 발생했습니다. 잠시 후 다시 시도하세요.",
+            ) from exc
+
+        if not updated:
+            raise HTTPException(status_code=404, detail="상품을 찾을 수 없습니다.")
+        updated["photo_url"] = _absolute_photo_url(request, updated["photo_url"])
+        return {
+            "check": serialize_media_check_result(result),
+            "product": updated,
+        }
 
     @app.delete(
         "/api/admin/products/{product_id}",
