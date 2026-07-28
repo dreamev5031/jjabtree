@@ -42,12 +42,25 @@ export default function PublicPage() {
 
   return (
     <main className="public-shell todaypicks-shell">
-      <header className="todaypicks-hero">
-        <img
-          className="brand-banner"
-          src="/todaypicks-banner.svg"
-          alt="오늘픽스 - 릴스에서 소개한 상품을 빠르게 확인하세요."
-        />
+      <header className="todaypicks-hero" aria-label="오늘픽스 소개">
+        <div className="hero-sparkle hero-sparkle-one" aria-hidden="true">✦</div>
+        <div className="hero-sparkle hero-sparkle-two" aria-hidden="true">✦</div>
+        <div className="hero-logo-wrap">
+          <img
+            className="hero-logo"
+            src="/todaypicks-logo.webp"
+            width="192"
+            height="192"
+            alt="오늘픽스"
+          />
+        </div>
+        <div className="hero-copy">
+          <span className="hero-kicker">TODAYPICKS</span>
+          <h1>오늘픽스</h1>
+          <span className="hero-divider" aria-hidden="true" />
+          <p>릴스에서 소개한 상품을 빠르게 확인하세요.</p>
+        </div>
+        <span className="hero-gift" aria-hidden="true">▣</span>
       </header>
 
       <aside className="affiliate-disclosure" role="note" aria-label="쿠팡 파트너스 수수료 안내">
