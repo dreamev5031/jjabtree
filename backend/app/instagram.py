@@ -119,6 +119,23 @@ class InstagramClient:
         legacy_error = self._error_message(legacy, "private_replies 방식 DM 발송 실패")
         raise InstagramAPIError(f"{modern_error} / {legacy_error}")
 
+    async def send_public_reply(self, comment_id: str, message: str) -> dict[str, Any]:
+        """Post a public reply below the triggering Instagram comment."""
+        url = f"{self.api_root}/{comment_id}/replies"
+        try:
+            async with httpx.AsyncClient(timeout=self.timeout) as client:
+                response = await client.post(
+                    url,
+                    headers=self.auth_headers,
+                    data={"message": message},
+                )
+        except httpx.RequestError as exc:
+            raise InstagramAPIError(f"공개 답글 발송 실패: Instagram API 연결 오류: {exc}") from exc
+
+        if response.is_error:
+            raise InstagramAPIError(self._error_message(response, "공개 답글 발송 실패"))
+        return response.json()
+
     @staticmethod
     def _normalize_media(item: dict[str, Any]) -> dict[str, Any]:
         return {
