@@ -19,6 +19,14 @@ DM_TEMPLATES = (
     "{번호}번으로 안내드릴게요, 프로필 링크 확인!",
 )
 
+PUBLIC_REPLY_TEMPLATES = (
+    "DM 보냈어요 확인해주세요 💌",
+    "DM 확인해보세요! 📩",
+    "DM 드렸어요~ 확인 부탁드려요 😊",
+    "요청하신 내용은 DM으로 보내드렸어요 🙌",
+    "메시지함을 확인해주세요 ✨",
+)
+
 
 @dataclass(frozen=True)
 class CommentEvent:
@@ -120,19 +128,41 @@ async def process_comment_event(
         return
 
     product_number = format_product_number(product["id"])
-    message = secrets.choice(DM_TEMPLATES).format(번호=product_number)
+    dm_message = secrets.choice(DM_TEMPLATES).format(번호=product_number)
     try:
-        await instagram.send_private_reply(event.comment_id, message)
+        await instagram.send_private_reply(event.comment_id, dm_message)
     except Exception as exc:  # noqa: BLE001 - webhook worker must never crash the server
         error = str(exc)
         database.complete_comment(
             event.comment_id,
             status="failed",
-            dm_message=message,
+            dm_message=dm_message,
             error_message=error[:1000],
         )
+        database.complete_public_reply(event.comment_id, status="skipped")
         logger.exception("Instagram DM 발송 실패: comment_id=%s", event.comment_id)
         return
 
-    database.complete_comment(event.comment_id, status="sent", dm_message=message)
+    database.complete_comment(event.comment_id, status="sent", dm_message=dm_message)
     logger.info("Instagram DM 발송 완료: comment_id=%s, product_id=%s", event.comment_id, product["id"])
+
+    reply_message = secrets.choice(PUBLIC_REPLY_TEMPLATES)
+    try:
+        await instagram.send_public_reply(event.comment_id, reply_message)
+    except Exception as exc:  # noqa: BLE001 - reply failure must not fail webhook processing
+        error = str(exc)
+        database.complete_public_reply(
+            event.comment_id,
+            status="failed",
+            reply_message=reply_message,
+            error_message=error[:1000],
+        )
+        logger.exception("Instagram 공개 답글 발송 실패: comment_id=%s", event.comment_id)
+        return
+
+    database.complete_public_reply(
+        event.comment_id,
+        status="sent",
+        reply_message=reply_message,
+    )
+    logger.info("Instagram 공개 답글 발송 완료: comment_id=%s", event.comment_id)
