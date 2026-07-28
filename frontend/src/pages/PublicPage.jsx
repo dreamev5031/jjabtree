@@ -48,6 +48,10 @@ export default function PublicPage() {
         <p>릴스에서 소개한 상품을 번호로 빠르게 확인하세요.</p>
       </header>
 
+      <aside className="affiliate-disclosure" role="note" aria-label="쿠팡 파트너스 수수료 안내">
+        이 포스팅은 쿠팡 파트너스 활동의 일환으로, 이에 따른 일정액의 수수료를 제공받습니다.
+      </aside>
+
       {loading && <Loading label="상품을 불러오는 중..." />}
       {error && <div className="notice error">{error}</div>}
       {!loading && !error && products.length === 0 && (
