@@ -84,7 +84,7 @@ a { color: inherit; }
 .section-heading > div { display: flex; align-items: center; gap: 10px; }
 .section-heading h2 { margin: 0; font-size: 19px; letter-spacing: -0.03em; }
 .step { width: 30px; height: 30px; display: grid; place-items: center; border-radius: 10px; background: var(--ink); color: white; font-size: 13px; font-weight: 800; }
-.primary-button, .secondary-button, .text-button, .status-button, .delete-button { border: 0; border-radius: 12px; font-weight: 750; }
+.primary-button, .secondary-button, .text-button, .status-button, .delete-button, .media-check-button { border: 0; border-radius: 12px; font-weight: 750; }
 .primary-button { width: 100%; min-height: 48px; padding: 12px 18px; color: white; background: var(--accent); }
 .primary-button:hover { background: var(--accent-dark); }
 .primary-button:disabled, .secondary-button:disabled { opacity: .55; cursor: wait; }
@@ -109,20 +109,27 @@ input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(255,91,53,
 .product-form small { color: var(--muted); line-height: 1.4; }
 .photo-preview { width: 130px; aspect-ratio: 1/1; object-fit: cover; border-radius: 14px; border: 1px solid var(--line); }
 .admin-products { display: grid; gap: 10px; }
-.admin-product-row { display: grid; grid-template-columns: 64px minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 10px; border: 1px solid var(--line); border-radius: 15px; }
+.admin-product-row { display: grid; grid-template-columns: 64px minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 10px; border: 1px solid var(--line); border-radius: 15px; transition: border-color .18s ease, background .18s ease, box-shadow .18s ease; }
+.admin-product-row.media-missing { border-color: #e7a08e; background: #fff9f6; box-shadow: 0 7px 20px rgba(163, 58, 34, .08); }
 .admin-product-row img { width: 64px; height: 64px; object-fit: cover; border-radius: 11px; }
 .admin-product-row > div { min-width: 0; }
 .admin-product-row > div:not(.admin-product-actions) { display: grid; gap: 4px; }
 .admin-product-row strong { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .admin-product-row a, .admin-product-row span { font-size: 12px; color: var(--muted); }
 .inline-number { display: inline-grid; place-items: center; min-width: 24px; height: 24px; margin-right: 7px; padding: 0 5px; border-radius: 8px; background: var(--ink); color: white !important; font-size: 11px !important; }
-.admin-product-actions { display: flex; align-items: center; gap: 7px; }
-.status-button, .delete-button { min-width: 58px; padding: 9px 10px; font-size: 12px; }
+.media-missing-badge { width: fit-content; max-width: 100%; padding: 5px 8px; border-radius: 9px; background: #ffe5dd; color: #9b2f18 !important; font-size: 11px !important; font-weight: 800; line-height: 1.35; }
+.media-check-meta { font-size: 10px !important; color: #938b82 !important; }
+.media-check-meta.ok { color: var(--green) !important; }
+.media-check-meta.missing { color: #a33a22 !important; font-weight: 750; }
+.admin-product-actions { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; justify-content: flex-end; }
+.status-button, .delete-button, .media-check-button { min-width: 58px; padding: 9px 10px; font-size: 12px; }
+.media-check-button { min-width: 72px; background: #eeeafd; color: #5f4aae; }
+.media-check-button:hover:not(:disabled) { background: #dfd8fb; }
 .status-button.active { background: #e7f4ed; color: var(--green); }
 .status-button.inactive { background: #eeeae5; color: #756e67; }
 .delete-button { background: #fff0ec; color: #a33a22; }
 .delete-button:hover:not(:disabled) { background: #f9d9d0; }
-.status-button:disabled, .delete-button:disabled { opacity: .5; cursor: wait; }
+.status-button:disabled, .delete-button:disabled, .media-check-button:disabled { opacity: .5; cursor: wait; }
 
 @media (max-width: 480px) {
   .public-shell { padding: 34px 14px 30px; }
@@ -135,8 +142,8 @@ input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(255,91,53,
   .product-link-button { min-width: 58px; min-height: 39px; padding: 0 9px; border-radius: 12px; font-size: 12px; }
   .pagination { gap: 7px; }
   .pagination-arrow { padding: 0 9px; }
-  .admin-product-actions { flex-direction: column; gap: 5px; }
-  .status-button, .delete-button { width: 100%; min-width: 54px; padding: 8px; }
+  .admin-product-actions { flex-direction: column; align-items: stretch; gap: 5px; }
+  .status-button, .delete-button, .media-check-button { width: 100%; min-width: 64px; padding: 8px; }
 }
 
 @media (min-width: 640px) {
