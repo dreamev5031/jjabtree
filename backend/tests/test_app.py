@@ -194,3 +194,37 @@ def test_public_reply_failure_keeps_dm_success_and_records_error(settings):
     assert log["reply_message"] in PUBLIC_REPLY_TEMPLATES
     assert "reply API failure" in log["reply_error_message"]
     assert log["replied_at"] is not None
+
+
+def test_admin_delete_product_preserves_history_and_does_not_reuse_id(client):
+    database = client.app.state.database
+    product = create_test_product(database, media_id="media-delete")
+    instagram = AsyncMock()
+    event = CommentEvent(
+        "comment-delete",
+        "media-delete",
+        "링크 부탁해요",
+        "user-delete",
+        "delete-tester",
+    )
+    asyncio.run(process_comment_event(event, database=database, instagram=instagram))
+
+    response = client.delete(
+        f"/api/admin/products/{product['id']}",
+        headers={"X-App-Key": "test-admin-key"},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"deleted": True, "product_id": product["id"]}
+    assert database.list_admin_products() == []
+    assert client.get("/api/public/products").json()["products"] == []
+
+    logs = database.list_dm_logs()
+    assert len(logs) == 1
+    assert logs[0]["product_id"] == product["id"]
+    assert logs[0]["product_name"] == "테스트 상품"
+    assert logs[0]["status"] == "sent"
+    assert logs[0]["reply_status"] == "sent"
+
+    next_product = create_test_product(database, media_id="media-after-delete")
+    assert next_product["id"] > product["id"]
