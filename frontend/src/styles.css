@@ -25,12 +25,13 @@ img { max-width: 100%; }
 .public-shell { width: min(100%, 760px); margin: 0 auto; padding: 44px 18px 34px; }
 .todaypicks-shell { width: min(100%, 680px); }
 .public-header { text-align: center; margin-bottom: 30px; }
-.todaypicks-header { margin-bottom: 28px; }
+.todaypicks-header { margin-bottom: 18px; }
 .brand-logo { width: 96px; height: 96px; margin: 0 auto 15px; border-radius: 50%; display: block; object-fit: cover; background: white; border: 1px solid rgba(101, 79, 224, .16); box-shadow: 0 14px 36px rgba(72, 55, 156, .14); }
 .eyebrow { margin: 0 0 7px; font-size: 11px; font-weight: 850; letter-spacing: 0.18em; color: var(--accent); }
 .public-header h1, .admin-header h1, .login-card h1 { margin: 0; font-size: clamp(28px, 8vw, 42px); letter-spacing: -0.04em; }
 .todaypicks-header h1 { font-size: clamp(30px, 8vw, 40px); }
 .public-header > p:last-child { max-width: 440px; margin: 10px auto 0; color: var(--muted); line-height: 1.6; font-size: 14px; }
+.affiliate-disclosure { width: 100%; margin: 0 0 18px; padding: 12px 14px; border: 1px solid #efd5ca; border-radius: 14px; background: #fff4ef; color: #6f4d42; font-size: 13px; font-weight: 650; line-height: 1.6; text-align: left; overflow-wrap: anywhere; }
 
 .product-list { display: grid; gap: 11px; scroll-margin-top: 18px; }
 .product-link-card { display: grid; grid-template-columns: 72px 50px minmax(0, 1fr) auto; align-items: center; gap: 12px; min-height: 92px; padding: 9px 11px 9px 9px; border: 1px solid rgba(217, 209, 199, .92); border-radius: 22px; background: rgba(255, 253, 249, .96); box-shadow: 0 7px 20px rgba(43, 35, 27, .055); transition: transform .18s ease, box-shadow .18s ease, border-color .18s ease; }
@@ -166,6 +167,7 @@ input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(255,91,53,
 @media (max-width: 480px) {
   .public-shell { padding: 34px 14px 30px; }
   .brand-logo { width: 88px; height: 88px; }
+  .affiliate-disclosure { padding: 11px 12px; font-size: 13px; line-height: 1.55; }
   .product-link-card { grid-template-columns: 60px 42px minmax(0, 1fr) auto; gap: 9px; min-height: 78px; padding: 8px; border-radius: 19px; }
   .product-thumbnail { width: 60px; height: 60px; border-radius: 15px; }
   .product-number { min-width: 40px; height: 31px; padding: 0 5px; font-size: 11px; }
