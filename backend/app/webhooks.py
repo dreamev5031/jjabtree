@@ -119,6 +119,7 @@ async def process_comment_event(
     claimed = database.claim_comment(
         comment_id=event.comment_id,
         product_id=product["id"],
+        product_name=product["product_name"],
         commenter_id=event.commenter_id,
         commenter_username=event.commenter_username,
         comment_text=event.text,
