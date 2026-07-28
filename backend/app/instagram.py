@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Literal
 
 import httpx
 
@@ -19,6 +19,15 @@ class InstagramAPIError(RuntimeError):
 class SubscriptionResult:
     ok: bool
     detail: str
+
+
+@dataclass(frozen=True)
+class MediaExistenceResult:
+    status: Literal["ok", "missing", "error"]
+    detail: str
+    http_status: int | None = None
+    error_code: int | None = None
+    error_subcode: int | None = None
 
 
 class InstagramClient:
@@ -52,6 +61,85 @@ class InstagramClient:
         payload = response.json()
         media = payload.get("data", [])
         return [self._normalize_media(item) for item in media]
+
+    async def check_media_exists(self, media_id: str) -> MediaExistenceResult:
+        """Check one owned media object without treating transient API failures as deletion."""
+        url = f"{self.api_root}/{media_id}"
+        try:
+            async with httpx.AsyncClient(timeout=self.timeout) as client:
+                response = await client.get(
+                    url,
+                    headers=self.auth_headers,
+                    params={"fields": "id,permalink"},
+                )
+        except httpx.RequestError as exc:
+            return MediaExistenceResult(
+                status="error",
+                detail=f"Instagram API 연결 오류: {exc}",
+            )
+
+        return self.classify_media_check_response(response, media_id)
+
+    @staticmethod
+    def classify_media_check_response(
+        response: httpx.Response,
+        media_id: str,
+    ) -> MediaExistenceResult:
+        if response.status_code == 200:
+            try:
+                payload = response.json()
+            except ValueError:
+                return MediaExistenceResult(
+                    status="error",
+                    detail="Instagram API가 올바른 JSON을 반환하지 않았습니다.",
+                    http_status=response.status_code,
+                )
+
+            returned_id = str(payload.get("id") or "")
+            if returned_id:
+                return MediaExistenceResult(
+                    status="ok",
+                    detail=f"Instagram 미디어 {returned_id} 확인 완료",
+                    http_status=response.status_code,
+                )
+            return MediaExistenceResult(
+                status="error",
+                detail=f"Instagram API 성공 응답에 미디어 ID가 없습니다: {media_id}",
+                http_status=response.status_code,
+            )
+
+        try:
+            payload = response.json()
+        except ValueError:
+            payload = {}
+        error = payload.get("error") if isinstance(payload, dict) else {}
+        error = error if isinstance(error, dict) else {}
+        error_code = InstagramClient._as_int(error.get("code"))
+        error_subcode = InstagramClient._as_int(error.get("error_subcode"))
+        message = str(error.get("message") or response.text[:500] or "알 수 없는 오류")
+
+        # Meta commonly returns either HTTP 404 or Graph error code 100/subcode 33
+        # for an object that no longer exists. All other failures are deliberately
+        # treated as transient/indeterminate to avoid false deletion warnings.
+        is_missing = response.status_code == 404 or (
+            error_code == 100 and error_subcode == 33
+        )
+        if is_missing:
+            return MediaExistenceResult(
+                status="missing",
+                detail=message,
+                http_status=response.status_code,
+                error_code=error_code,
+                error_subcode=error_subcode,
+            )
+
+        return MediaExistenceResult(
+            status="error",
+            detail=message,
+            http_status=response.status_code,
+            error_code=error_code,
+            error_subcode=error_subcode,
+        )
 
     async def subscribe_comments(self) -> SubscriptionResult:
         """Subscribe the professional account to app-level comment webhooks.
@@ -146,6 +234,13 @@ class InstagramClient:
             "permalink": item.get("permalink") or "",
             "timestamp": item.get("timestamp") or "",
         }
+
+    @staticmethod
+    def _as_int(value: Any) -> int | None:
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return None
 
     @staticmethod
     def _error_message(response: httpx.Response, prefix: str) -> str:
