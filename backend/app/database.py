@@ -36,14 +36,29 @@ CREATE TABLE IF NOT EXISTS processed_comments (
     dm_message TEXT,
     status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'sent', 'failed', 'ignored')),
     error_message TEXT,
+    reply_message TEXT,
+    reply_status TEXT NOT NULL DEFAULT 'pending' CHECK (reply_status IN ('pending', 'sent', 'failed', 'skipped')),
+    reply_error_message TEXT,
     created_at TEXT NOT NULL,
     processed_at TEXT,
+    replied_at TEXT,
     FOREIGN KEY(product_id) REFERENCES products(id) ON DELETE CASCADE
 );
 
 CREATE INDEX IF NOT EXISTS idx_processed_comments_product_id
 ON processed_comments(product_id, created_at DESC);
 """
+
+
+# Existing Railway SQLite volumes may have been created before public replies existed.
+# SQLite's CREATE TABLE IF NOT EXISTS does not add new columns, so initialize() applies
+# these safe additive migrations when required.
+PROCESSED_COMMENT_MIGRATIONS = {
+    "reply_message": "TEXT",
+    "reply_status": "TEXT NOT NULL DEFAULT 'pending'",
+    "reply_error_message": "TEXT",
+    "replied_at": "TEXT",
+}
 
 
 class Database:
@@ -54,6 +69,18 @@ class Database:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with self.connect() as conn:
             conn.executescript(SCHEMA)
+            self._migrate_processed_comments(conn)
+
+    @staticmethod
+    def _migrate_processed_comments(conn: sqlite3.Connection) -> None:
+        existing_columns = {
+            row["name"] for row in conn.execute("PRAGMA table_info(processed_comments)").fetchall()
+        }
+        for column_name, column_definition in PROCESSED_COMMENT_MIGRATIONS.items():
+            if column_name not in existing_columns:
+                conn.execute(
+                    f"ALTER TABLE processed_comments ADD COLUMN {column_name} {column_definition}"
+                )
 
     @contextmanager
     def connect(self) -> Iterator[sqlite3.Connection]:
@@ -153,8 +180,8 @@ class Database:
                     """
                     INSERT INTO processed_comments (
                         comment_id, product_id, commenter_id, commenter_username,
-                        comment_text, status, created_at
-                    ) VALUES (?, ?, ?, ?, ?, 'pending', ?)
+                        comment_text, status, reply_status, created_at
+                    ) VALUES (?, ?, ?, ?, ?, 'pending', 'pending', ?)
                     """,
                     (
                         comment_id,
@@ -185,6 +212,24 @@ class Database:
                 WHERE comment_id = ?
                 """,
                 (status, dm_message, error_message, self.now(), comment_id),
+            )
+
+    def complete_public_reply(
+        self,
+        comment_id: str,
+        *,
+        status: str,
+        reply_message: str | None = None,
+        error_message: str | None = None,
+    ) -> None:
+        with self.connect() as conn:
+            conn.execute(
+                """
+                UPDATE processed_comments
+                SET reply_status = ?, reply_message = ?, reply_error_message = ?, replied_at = ?
+                WHERE comment_id = ?
+                """,
+                (status, reply_message, error_message, self.now(), comment_id),
             )
 
     def list_dm_logs(self, limit: int = 100) -> list[dict[str, Any]]:
