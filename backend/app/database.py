@@ -20,7 +20,9 @@ CREATE TABLE IF NOT EXISTS products (
     ig_media_id TEXT NOT NULL UNIQUE,
     ig_permalink TEXT NOT NULL,
     created_at TEXT NOT NULL,
-    status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'inactive'))
+    status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'inactive')),
+    media_check_status TEXT NOT NULL DEFAULT 'unchecked' CHECK (media_check_status IN ('ok', 'missing', 'unchecked')),
+    media_checked_at TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_products_status_id ON products(status, id);
@@ -49,6 +51,11 @@ CREATE INDEX IF NOT EXISTS idx_processed_comments_product_id
 ON processed_comments(product_id, created_at DESC);
 """
 
+
+PRODUCT_MIGRATIONS = {
+    "media_check_status": "TEXT NOT NULL DEFAULT 'unchecked'",
+    "media_checked_at": "TEXT",
+}
 
 # Existing Railway SQLite volumes may have been created before public replies or
 # product-history preservation existed. Add safe columns first, then rebuild the
@@ -82,6 +89,8 @@ CREATE TABLE {table_name} (
 )
 """
 
+MEDIA_CHECK_STATUSES = {"ok", "missing", "unchecked"}
+
 
 class Database:
     def __init__(self, path: Path):
@@ -91,7 +100,28 @@ class Database:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with self.connect() as conn:
             conn.executescript(SCHEMA)
+            self._migrate_products(conn)
             self._migrate_processed_comments(conn)
+
+    @staticmethod
+    def _migrate_products(conn: sqlite3.Connection) -> None:
+        existing_columns = {
+            row["name"] for row in conn.execute("PRAGMA table_info(products)").fetchall()
+        }
+        for column_name, column_definition in PRODUCT_MIGRATIONS.items():
+            if column_name not in existing_columns:
+                conn.execute(
+                    f"ALTER TABLE products ADD COLUMN {column_name} {column_definition}"
+                )
+
+        conn.execute(
+            """
+            UPDATE products
+            SET media_check_status = 'unchecked'
+            WHERE media_check_status IS NULL
+               OR media_check_status NOT IN ('ok', 'missing', 'unchecked')
+            """
+        )
 
     @staticmethod
     def _migrate_processed_comments(conn: sqlite3.Connection) -> None:
@@ -185,14 +215,34 @@ class Database:
             ).fetchall()
         return [dict(row) for row in rows]
 
+    def list_active_products_for_media_check(self) -> list[dict[str, Any]]:
+        with self.connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT id, product_name, ig_media_id, media_check_status, media_checked_at
+                FROM products
+                WHERE status = 'active'
+                ORDER BY id ASC
+                """
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def get_product(self, product_id: int) -> dict[str, Any] | None:
+        with self.connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM products WHERE id = ?", (product_id,)
+            ).fetchone()
+        return dict(row) if row else None
+
     def create_product(self, values: dict[str, Any]) -> dict[str, Any]:
         with self.connect() as conn:
             cursor = conn.execute(
                 """
                 INSERT INTO products (
                     product_name, purchase_link, trigger_phrase, photo_url,
-                    ig_media_id, ig_permalink, created_at, status
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, 'active')
+                    ig_media_id, ig_permalink, created_at, status,
+                    media_check_status, media_checked_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, 'active', 'unchecked', NULL)
                 """,
                 (
                     values["product_name"],
@@ -213,6 +263,28 @@ class Database:
         with self.connect() as conn:
             conn.execute(
                 "UPDATE products SET status = ? WHERE id = ?", (status, product_id)
+            )
+            row = conn.execute(
+                "SELECT * FROM products WHERE id = ?", (product_id,)
+            ).fetchone()
+        return dict(row) if row else None
+
+    def update_media_check_status(
+        self,
+        product_id: int,
+        media_check_status: str,
+    ) -> dict[str, Any] | None:
+        if media_check_status not in MEDIA_CHECK_STATUSES:
+            raise ValueError(f"지원하지 않는 media_check_status: {media_check_status}")
+
+        with self.connect() as conn:
+            conn.execute(
+                """
+                UPDATE products
+                SET media_check_status = ?, media_checked_at = ?
+                WHERE id = ?
+                """,
+                (media_check_status, self.now(), product_id),
             )
             row = conn.execute(
                 "SELECT * FROM products WHERE id = ?", (product_id,)
