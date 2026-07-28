@@ -12,11 +12,11 @@ from .instagram import InstagramClient
 logger = logging.getLogger(__name__)
 
 DM_TEMPLATES = (
-    "프로필 링크 들어가서 {번호}번 확인해보세요 🙌",
-    "요청하신 상품은 링크의 {번호}번이에요!",
-    "{번호}번 상품이에요, 프로필 링크 확인해주세요~",
-    "링크 프로필에서 {번호}번 보시면 돼요 😊",
-    "{번호}번으로 안내드릴게요, 프로필 링크 확인!",
+    "요청하신 상품은 여기서 확인하세요: {페이지링크} ({번호}번)",
+    "{페이지링크} 에서 {번호}번 상품 확인해보세요!",
+    "여기 확인해보세요 👉 {페이지링크} ({번호}번)",
+    "{번호}번 상품이에요! {페이지링크} 에서 바로 보실 수 있어요",
+    "메시지 확인 완료! {페이지링크} ({번호}번)",
 )
 
 PUBLIC_REPLY_TEMPLATES = (
@@ -104,6 +104,7 @@ async def process_comment_event(
     *,
     database: Database,
     instagram: InstagramClient,
+    public_site_url: str,
 ) -> None:
     product = database.get_active_product_by_media(event.media_id)
     if not product:
@@ -129,7 +130,10 @@ async def process_comment_event(
         return
 
     product_number = format_product_number(product["id"])
-    dm_message = secrets.choice(DM_TEMPLATES).format(번호=product_number)
+    dm_message = secrets.choice(DM_TEMPLATES).format(
+        번호=product_number,
+        페이지링크=public_site_url,
+    )
     try:
         await instagram.send_private_reply(event.comment_id, dm_message)
     except Exception as exc:  # noqa: BLE001 - webhook worker must never crash the server
