@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { apiRequest } from '../api'
 import Loading from '../components/Loading'
+import '../public-banner.css'
 
 const PAGE_SIZE = 10
 
