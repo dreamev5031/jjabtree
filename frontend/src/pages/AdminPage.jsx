@@ -206,11 +206,14 @@ export default function AdminPage() {
   return (
     <main className="admin-shell">
       <header className="admin-header">
-        <div>
+        <div className="admin-title">
           <p className="eyebrow">JJABTREE ADMIN</p>
           <h1>상품 등록</h1>
         </div>
-        <button className="text-button" type="button" onClick={logout}>로그아웃</button>
+        <div className="admin-header-actions">
+          <a className="home-button" href="/">홈으로 가기</a>
+          <button className="text-button" type="button" onClick={logout}>로그아웃</button>
+        </div>
       </header>
 
       {message && <div className="notice success">{message}</div>}
@@ -266,20 +269,42 @@ export default function AdminPage() {
         <form className="product-form" onSubmit={submitProduct}>
           <label>
             <span>상품 사진</span>
-            <input type="file" accept="image/jpeg,image/png,image/webp,image/gif" onChange={(event) => setPhoto(event.target.files?.[0] || null)} />
+            <input
+              type="file"
+              accept="image/jpeg,image/png,image/webp,image/gif"
+              onChange={(event) => setPhoto(event.target.files?.[0] || null)}
+            />
           </label>
           {photoPreview && <img className="photo-preview" src={photoPreview} alt="업로드 미리보기" />}
           <label>
             <span>제품명</span>
-            <input required maxLength="200" value={form.product_name} onChange={(event) => setForm({ ...form, product_name: event.target.value })} placeholder="예: 미니 무선 청소기" />
+            <input
+              required
+              maxLength="200"
+              value={form.product_name}
+              onChange={(event) => setForm({ ...form, product_name: event.target.value })}
+              placeholder="예: 미니 무선 청소기"
+            />
           </label>
           <label>
             <span>구매링크</span>
-            <input required type="url" value={form.purchase_link} onChange={(event) => setForm({ ...form, purchase_link: event.target.value })} placeholder="https://..." />
+            <input
+              required
+              type="url"
+              value={form.purchase_link}
+              onChange={(event) => setForm({ ...form, purchase_link: event.target.value })}
+              placeholder="https://..."
+            />
           </label>
           <label>
             <span>댓글유도문구</span>
-            <input required maxLength="100" value={form.trigger_phrase} onChange={(event) => setForm({ ...form, trigger_phrase: event.target.value })} placeholder="예: 링크" />
+            <input
+              required
+              maxLength="100"
+              value={form.trigger_phrase}
+              onChange={(event) => setForm({ ...form, trigger_phrase: event.target.value })}
+              placeholder="예: 링크"
+            />
             <small>댓글에 이 문구가 포함되면 DM을 보냅니다. 대소문자와 연속 공백은 무시합니다.</small>
           </label>
           <button className="primary-button" type="submit" disabled={saving}>
@@ -300,7 +325,10 @@ export default function AdminPage() {
           {products.map((product) => {
             const isBusy = deletingProductId === product.id || checkingProductId === product.id
             return (
-              <article className={`admin-product-row ${product.media_check_status === 'missing' ? 'media-missing' : ''}`} key={product.id}>
+              <article
+                className={`admin-product-row ${product.media_check_status === 'missing' ? 'media-missing' : ''}`}
+                key={product.id}
+              >
                 <img src={product.photo_url} alt="" />
                 <div className="admin-product-info">
                   <strong><span className="inline-number">{product.id}</span>{product.product_name}</strong>
