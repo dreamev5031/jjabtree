@@ -18,6 +18,7 @@ export default function AdminPage() {
   const [photo, setPhoto] = useState(null)
   const [loadingMedia, setLoadingMedia] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [deletingProductId, setDeletingProductId] = useState(null)
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
 
@@ -116,6 +117,8 @@ export default function AdminPage() {
 
   async function toggleStatus(product) {
     const nextStatus = product.status === 'active' ? 'inactive' : 'active'
+    setError('')
+    setMessage('')
     try {
       await apiRequest(`/api/admin/products/${product.id}/status`, {
         method: 'PATCH',
@@ -125,6 +128,29 @@ export default function AdminPage() {
       await loadProducts()
     } catch (err) {
       setError(err.message)
+    }
+  }
+
+  async function deleteProduct(product) {
+    const confirmed = window.confirm(
+      `“${product.product_name}” 상품을 정말 삭제하시겠습니까?\n댓글 및 DM 이력은 그대로 보존됩니다.`,
+    )
+    if (!confirmed) return
+
+    setDeletingProductId(product.id)
+    setError('')
+    setMessage('')
+    try {
+      await apiRequest(`/api/admin/products/${product.id}`, {
+        method: 'DELETE',
+        headers: adminHeaders(appKey),
+      })
+      setProducts((current) => current.filter((item) => item.id !== product.id))
+      setMessage(`${product.id}번 상품이 삭제됐습니다. 기존 댓글 및 DM 이력은 유지됩니다.`)
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setDeletingProductId(null)
     }
   }
 
@@ -251,13 +277,24 @@ export default function AdminPage() {
                 <a href={product.ig_permalink} target="_blank" rel="noreferrer">연결된 릴스 ↗</a>
                 <span>트리거: “{product.trigger_phrase}”</span>
               </div>
-              <button
-                className={`status-button ${product.status}`}
-                type="button"
-                onClick={() => toggleStatus(product)}
-              >
-                {product.status === 'active' ? '노출 중' : '숨김'}
-              </button>
+              <div className="admin-product-actions">
+                <button
+                  className={`status-button ${product.status}`}
+                  type="button"
+                  onClick={() => toggleStatus(product)}
+                  disabled={deletingProductId === product.id}
+                >
+                  {product.status === 'active' ? '노출 중' : '숨김'}
+                </button>
+                <button
+                  className="delete-button"
+                  type="button"
+                  onClick={() => deleteProduct(product)}
+                  disabled={deletingProductId === product.id}
+                >
+                  {deletingProductId === product.id ? '삭제 중' : '삭제'}
+                </button>
+              </div>
             </article>
           ))}
           {!products.length && <div className="empty-state compact">등록된 상품이 없습니다.</div>}
