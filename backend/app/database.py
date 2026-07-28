@@ -30,6 +30,7 @@ CREATE TABLE IF NOT EXISTS processed_comments (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     comment_id TEXT NOT NULL UNIQUE,
     product_id INTEGER NOT NULL,
+    product_name_snapshot TEXT,
     commenter_id TEXT,
     commenter_username TEXT,
     comment_text TEXT NOT NULL,
@@ -41,8 +42,7 @@ CREATE TABLE IF NOT EXISTS processed_comments (
     reply_error_message TEXT,
     created_at TEXT NOT NULL,
     processed_at TEXT,
-    replied_at TEXT,
-    FOREIGN KEY(product_id) REFERENCES products(id) ON DELETE CASCADE
+    replied_at TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_processed_comments_product_id
@@ -50,15 +50,37 @@ ON processed_comments(product_id, created_at DESC);
 """
 
 
-# Existing Railway SQLite volumes may have been created before public replies existed.
-# SQLite's CREATE TABLE IF NOT EXISTS does not add new columns, so initialize() applies
-# these safe additive migrations when required.
+# Existing Railway SQLite volumes may have been created before public replies or
+# product-history preservation existed. Add safe columns first, then rebuild the
+# table without its legacy ON DELETE CASCADE foreign key when necessary.
 PROCESSED_COMMENT_MIGRATIONS = {
+    "product_name_snapshot": "TEXT",
     "reply_message": "TEXT",
     "reply_status": "TEXT NOT NULL DEFAULT 'pending'",
     "reply_error_message": "TEXT",
     "replied_at": "TEXT",
 }
+
+PROCESSED_COMMENTS_TABLE = """
+CREATE TABLE {table_name} (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    comment_id TEXT NOT NULL UNIQUE,
+    product_id INTEGER NOT NULL,
+    product_name_snapshot TEXT,
+    commenter_id TEXT,
+    commenter_username TEXT,
+    comment_text TEXT NOT NULL,
+    dm_message TEXT,
+    status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'sent', 'failed', 'ignored')),
+    error_message TEXT,
+    reply_message TEXT,
+    reply_status TEXT NOT NULL DEFAULT 'pending' CHECK (reply_status IN ('pending', 'sent', 'failed', 'skipped')),
+    reply_error_message TEXT,
+    created_at TEXT NOT NULL,
+    processed_at TEXT,
+    replied_at TEXT
+)
+"""
 
 
 class Database:
@@ -81,6 +103,50 @@ class Database:
                 conn.execute(
                     f"ALTER TABLE processed_comments ADD COLUMN {column_name} {column_definition}"
                 )
+
+        # Keep the product name visible in historical logs after the product row is deleted.
+        conn.execute(
+            """
+            UPDATE processed_comments
+            SET product_name_snapshot = COALESCE(
+                product_name_snapshot,
+                (SELECT product_name FROM products WHERE products.id = processed_comments.product_id)
+            )
+            """
+        )
+
+        foreign_keys = conn.execute("PRAGMA foreign_key_list(processed_comments)").fetchall()
+        if not foreign_keys:
+            return
+
+        # The initial schema used ON DELETE CASCADE. Rebuild the child table without
+        # that foreign key so deleting a product never deletes its DM/comment history.
+        conn.execute("DROP TABLE IF EXISTS processed_comments_new")
+        conn.execute(PROCESSED_COMMENTS_TABLE.format(table_name="processed_comments_new"))
+        conn.execute(
+            """
+            INSERT INTO processed_comments_new (
+                id, comment_id, product_id, product_name_snapshot,
+                commenter_id, commenter_username, comment_text, dm_message,
+                status, error_message, reply_message, reply_status,
+                reply_error_message, created_at, processed_at, replied_at
+            )
+            SELECT
+                id, comment_id, product_id, product_name_snapshot,
+                commenter_id, commenter_username, comment_text, dm_message,
+                status, error_message, reply_message, reply_status,
+                reply_error_message, created_at, processed_at, replied_at
+            FROM processed_comments
+            """
+        )
+        conn.execute("DROP TABLE processed_comments")
+        conn.execute("ALTER TABLE processed_comments_new RENAME TO processed_comments")
+        conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_processed_comments_product_id
+            ON processed_comments(product_id, created_at DESC)
+            """
+        )
 
     @contextmanager
     def connect(self) -> Iterator[sqlite3.Connection]:
@@ -153,6 +219,16 @@ class Database:
             ).fetchone()
         return dict(row) if row else None
 
+    def delete_product(self, product_id: int) -> dict[str, Any] | None:
+        with self.connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM products WHERE id = ?", (product_id,)
+            ).fetchone()
+            if not row:
+                return None
+            conn.execute("DELETE FROM products WHERE id = ?", (product_id,))
+        return dict(row)
+
     def get_active_product_by_media(self, media_id: str) -> dict[str, Any] | None:
         with self.connect() as conn:
             row = conn.execute(
@@ -170,6 +246,7 @@ class Database:
         *,
         comment_id: str,
         product_id: int,
+        product_name: str,
         commenter_id: str | None,
         commenter_username: str | None,
         comment_text: str,
@@ -179,13 +256,15 @@ class Database:
                 conn.execute(
                     """
                     INSERT INTO processed_comments (
-                        comment_id, product_id, commenter_id, commenter_username,
-                        comment_text, status, reply_status, created_at
-                    ) VALUES (?, ?, ?, ?, ?, 'pending', 'pending', ?)
+                        comment_id, product_id, product_name_snapshot,
+                        commenter_id, commenter_username, comment_text,
+                        status, reply_status, created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, 'pending', 'pending', ?)
                     """,
                     (
                         comment_id,
                         product_id,
+                        product_name,
                         commenter_id,
                         commenter_username,
                         comment_text,
@@ -236,9 +315,11 @@ class Database:
         with self.connect() as conn:
             rows = conn.execute(
                 """
-                SELECT pc.*, p.product_name
+                SELECT
+                    pc.*,
+                    COALESCE(p.product_name, pc.product_name_snapshot, '삭제된 상품') AS product_name
                 FROM processed_comments pc
-                JOIN products p ON p.id = pc.product_id
+                LEFT JOIN products p ON p.id = pc.product_id
                 ORDER BY pc.id DESC
                 LIMIT ?
                 """,
