@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.parse import urlparse
 
 
 class ConfigurationError(RuntimeError):
@@ -33,6 +34,14 @@ def _hour(name: str, default: int) -> int:
     return value
 
 
+def _http_url(name: str, default: str) -> str:
+    value = os.environ.get(name, default).strip() or default
+    parsed = urlparse(value)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        raise ConfigurationError(f"{name}는 http(s)로 시작하는 완전한 URL이어야 합니다.")
+    return value.rstrip("/")
+
+
 @dataclass(frozen=True)
 class Settings:
     ig_access_token: str
@@ -45,6 +54,7 @@ class Settings:
     webhook_verify_token: str
     meta_app_secret: str | None
     cors_origins: list[str]
+    public_site_url: str
     media_check_hour: int = 5
 
     @classmethod
@@ -71,5 +81,6 @@ class Settings:
             ).strip(),
             meta_app_secret=os.environ.get("META_APP_SECRET") or None,
             cors_origins=_csv("CORS_ORIGINS", "*"),
+            public_site_url=_http_url("PUBLIC_SITE_URL", "https://jjabtree.pages.dev"),
             media_check_hour=_hour("MEDIA_CHECK_HOUR", 5),
         )

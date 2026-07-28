@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 os.environ.setdefault("IG_ACCESS_TOKEN", "test-token")
 os.environ.setdefault("IG_BUSINESS_ACCOUNT_ID", "17841400000000000")
 os.environ.setdefault("ADMIN_APP_KEY", "test-admin-key")
+os.environ.setdefault("PUBLIC_SITE_URL", "https://jjabtree.pages.dev")
 
 from app.config import Settings  # noqa: E402
 from app.main import create_app  # noqa: E402
@@ -28,6 +29,7 @@ def settings(tmp_path: Path) -> Settings:
         webhook_verify_token="verify-me",
         meta_app_secret=None,
         cors_origins=["*"],
+        public_site_url="https://jjabtree.pages.dev",
     )
 
 
