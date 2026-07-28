@@ -22,6 +22,17 @@ def _csv(name: str, default: str) -> list[str]:
     return [item.strip() for item in os.environ.get(name, default).split(",") if item.strip()]
 
 
+def _hour(name: str, default: int) -> int:
+    raw = os.environ.get(name, str(default)).strip()
+    try:
+        value = int(raw)
+    except ValueError as exc:
+        raise ConfigurationError(f"{name}는 0부터 23 사이의 정수여야 합니다.") from exc
+    if not 0 <= value <= 23:
+        raise ConfigurationError(f"{name}는 0부터 23 사이의 정수여야 합니다.")
+    return value
+
+
 @dataclass(frozen=True)
 class Settings:
     ig_access_token: str
@@ -34,6 +45,7 @@ class Settings:
     webhook_verify_token: str
     meta_app_secret: str | None
     cors_origins: list[str]
+    media_check_hour: int = 5
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -59,4 +71,5 @@ class Settings:
             ).strip(),
             meta_app_secret=os.environ.get("META_APP_SECRET") or None,
             cors_origins=_csv("CORS_ORIGINS", "*"),
+            media_check_hour=_hour("MEDIA_CHECK_HOUR", 5),
         )
