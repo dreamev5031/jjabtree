@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import asyncio
 from unittest.mock import AsyncMock
 
 from app.webhooks import (
+    PUBLIC_REPLY_TEMPLATES,
     CommentEvent,
     extract_comment_events,
     format_product_number,
@@ -107,33 +109,88 @@ def test_extract_direct_entry_webhook_event():
     ]
 
 
-def test_duplicate_comment_sends_only_once(settings):
-    from app.database import Database
-
-    database = Database(settings.db_path)
-    database.initialize()
-    product = database.create_product(
+def create_test_product(database, *, media_id: str = "media-1"):
+    return database.create_product(
         {
             "product_name": "테스트 상품",
             "purchase_link": "https://example.com/product",
             "trigger_phrase": "링크",
             "photo_url": "/uploads/test.jpg",
-            "ig_media_id": "media-1",
+            "ig_media_id": media_id,
             "ig_permalink": "https://instagram.com/reel/test",
         }
     )
+
+
+def test_duplicate_comment_sends_dm_and_public_reply_only_once(settings):
+    from app.database import Database
+
+    database = Database(settings.db_path)
+    database.initialize()
+    product = create_test_product(database)
     instagram = AsyncMock()
     event = CommentEvent("comment-1", "media-1", "링크 주세요", "user-1", "tester")
-
-    import asyncio
 
     asyncio.run(process_comment_event(event, database=database, instagram=instagram))
     asyncio.run(process_comment_event(event, database=database, instagram=instagram))
 
     assert product["id"] == 1
     assert instagram.send_private_reply.await_count == 1
-    sent_message = instagram.send_private_reply.await_args.args[1]
-    assert "001번" in sent_message
-    logs = database.list_dm_logs()
-    assert logs[0]["status"] == "sent"
-    assert "001번" in logs[0]["dm_message"]
+    assert instagram.send_public_reply.await_count == 1
+
+    sent_dm = instagram.send_private_reply.await_args.args[1]
+    sent_reply = instagram.send_public_reply.await_args.args[1]
+    assert "001번" in sent_dm
+    assert sent_reply in PUBLIC_REPLY_TEMPLATES
+    assert "001" not in sent_reply
+
+    log = database.list_dm_logs()[0]
+    assert log["status"] == "sent"
+    assert "001번" in log["dm_message"]
+    assert log["reply_status"] == "sent"
+    assert log["reply_message"] == sent_reply
+    assert log["reply_error_message"] is None
+    assert log["replied_at"] is not None
+
+
+def test_dm_failure_does_not_send_public_reply(settings):
+    from app.database import Database
+
+    database = Database(settings.db_path)
+    database.initialize()
+    create_test_product(database)
+    instagram = AsyncMock()
+    instagram.send_private_reply.side_effect = RuntimeError("DM API failure")
+    event = CommentEvent("comment-dm-fail", "media-1", "링크", "user-1", "tester")
+
+    asyncio.run(process_comment_event(event, database=database, instagram=instagram))
+
+    assert instagram.send_private_reply.await_count == 1
+    assert instagram.send_public_reply.await_count == 0
+    log = database.list_dm_logs()[0]
+    assert log["status"] == "failed"
+    assert "DM API failure" in log["error_message"]
+    assert log["reply_status"] == "skipped"
+    assert log["reply_message"] is None
+
+
+def test_public_reply_failure_keeps_dm_success_and_records_error(settings):
+    from app.database import Database
+
+    database = Database(settings.db_path)
+    database.initialize()
+    create_test_product(database)
+    instagram = AsyncMock()
+    instagram.send_public_reply.side_effect = RuntimeError("reply API failure")
+    event = CommentEvent("comment-reply-fail", "media-1", "링크", "user-1", "tester")
+
+    asyncio.run(process_comment_event(event, database=database, instagram=instagram))
+
+    assert instagram.send_private_reply.await_count == 1
+    assert instagram.send_public_reply.await_count == 1
+    log = database.list_dm_logs()[0]
+    assert log["status"] == "sent"
+    assert log["reply_status"] == "failed"
+    assert log["reply_message"] in PUBLIC_REPLY_TEMPLATES
+    assert "reply API failure" in log["reply_error_message"]
+    assert log["replied_at"] is not None
