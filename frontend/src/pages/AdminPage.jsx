@@ -19,6 +19,7 @@ export default function AdminPage() {
   const [loadingMedia, setLoadingMedia] = useState(false)
   const [saving, setSaving] = useState(false)
   const [deletingProductId, setDeletingProductId] = useState(null)
+  const [checkingProductId, setCheckingProductId] = useState(null)
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
 
@@ -128,6 +129,33 @@ export default function AdminPage() {
       await loadProducts()
     } catch (err) {
       setError(err.message)
+    }
+  }
+
+  async function checkMedia(product) {
+    setCheckingProductId(product.id)
+    setError('')
+    setMessage('')
+    try {
+      const data = await apiRequest(`/api/admin/products/${product.id}/media-check`, {
+        method: 'POST',
+        headers: adminHeaders(appKey),
+      })
+      setProducts((current) => current.map((item) => (
+        item.id === product.id ? data.product : item
+      )))
+
+      if (data.check.status === 'missing') {
+        setMessage(`${product.id}번 상품의 연결된 릴스가 삭제된 것으로 의심됩니다. 자동 숨김은 하지 않았습니다.`)
+      } else if (data.check.status === 'ok') {
+        setMessage(`${product.id}번 상품의 연결된 릴스가 정상적으로 확인됐습니다.`)
+      } else {
+        setError(`릴스 상태를 확인하지 못했습니다. 기존 상태는 유지됩니다. ${data.check.detail || ''}`.trim())
+      }
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setCheckingProductId(null)
     }
   }
 
@@ -269,34 +297,52 @@ export default function AdminPage() {
           <button className="text-button" type="button" onClick={() => loadProducts()}>새로고침</button>
         </div>
         <div className="admin-products">
-          {products.map((product) => (
-            <article className="admin-product-row" key={product.id}>
-              <img src={product.photo_url} alt="" />
-              <div>
-                <strong><span className="inline-number">{product.id}</span>{product.product_name}</strong>
-                <a href={product.ig_permalink} target="_blank" rel="noreferrer">연결된 릴스 ↗</a>
-                <span>트리거: “{product.trigger_phrase}”</span>
-              </div>
-              <div className="admin-product-actions">
-                <button
-                  className={`status-button ${product.status}`}
-                  type="button"
-                  onClick={() => toggleStatus(product)}
-                  disabled={deletingProductId === product.id}
-                >
-                  {product.status === 'active' ? '노출 중' : '숨김'}
-                </button>
-                <button
-                  className="delete-button"
-                  type="button"
-                  onClick={() => deleteProduct(product)}
-                  disabled={deletingProductId === product.id}
-                >
-                  {deletingProductId === product.id ? '삭제 중' : '삭제'}
-                </button>
-              </div>
-            </article>
-          ))}
+          {products.map((product) => {
+            const isBusy = deletingProductId === product.id || checkingProductId === product.id
+            return (
+              <article className={`admin-product-row ${product.media_check_status === 'missing' ? 'media-missing' : ''}`} key={product.id}>
+                <img src={product.photo_url} alt="" />
+                <div className="admin-product-info">
+                  <strong><span className="inline-number">{product.id}</span>{product.product_name}</strong>
+                  <a href={product.ig_permalink} target="_blank" rel="noreferrer">연결된 릴스 ↗</a>
+                  <span>트리거: “{product.trigger_phrase}”</span>
+                  {product.media_check_status === 'missing' && (
+                    <span className="media-missing-badge">⚠ 연결된 릴스가 삭제된 것 같아요</span>
+                  )}
+                  <span className={`media-check-meta ${product.media_check_status || 'unchecked'}`}>
+                    릴스 확인: {mediaCheckLabel(product.media_check_status)}
+                    {product.media_checked_at ? ` · ${formatDateTime(product.media_checked_at)}` : ''}
+                  </span>
+                </div>
+                <div className="admin-product-actions">
+                  <button
+                    className="media-check-button"
+                    type="button"
+                    onClick={() => checkMedia(product)}
+                    disabled={isBusy}
+                  >
+                    {checkingProductId === product.id ? '확인 중' : '지금 확인'}
+                  </button>
+                  <button
+                    className={`status-button ${product.status}`}
+                    type="button"
+                    onClick={() => toggleStatus(product)}
+                    disabled={isBusy}
+                  >
+                    {product.status === 'active' ? '노출 중' : '숨김'}
+                  </button>
+                  <button
+                    className="delete-button"
+                    type="button"
+                    onClick={() => deleteProduct(product)}
+                    disabled={isBusy}
+                  >
+                    {deletingProductId === product.id ? '삭제 중' : '삭제'}
+                  </button>
+                </div>
+              </article>
+            )
+          })}
           {!products.length && <div className="empty-state compact">등록된 상품이 없습니다.</div>}
         </div>
       </section>
@@ -311,4 +357,20 @@ function formatDate(value) {
     month: 'short',
     day: 'numeric',
   }).format(new Date(value))
+}
+
+function formatDateTime(value) {
+  if (!value) return ''
+  return new Intl.DateTimeFormat('ko-KR', {
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(new Date(value))
+}
+
+function mediaCheckLabel(status) {
+  if (status === 'ok') return '정상'
+  if (status === 'missing') return '삭제 의심'
+  return '미확인'
 }
