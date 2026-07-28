@@ -166,6 +166,25 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         product["photo_url"] = _absolute_photo_url(request, product["photo_url"])
         return {"product": product}
 
+    @app.delete(
+        "/api/admin/products/{product_id}",
+        dependencies=[Depends(admin_guard)],
+    )
+    async def delete_product(product_id: int):
+        product = database.delete_product(product_id)
+        if not product:
+            raise HTTPException(status_code=404, detail="상품을 찾을 수 없습니다.")
+
+        photo_url = product.get("photo_url") or ""
+        if photo_url.startswith("/uploads/"):
+            try:
+                (settings.upload_dir / Path(photo_url).name).unlink(missing_ok=True)
+            except OSError:
+                logger.exception("삭제 상품 이미지 정리 실패: product_id=%s", product_id)
+
+        logger.info("상품 삭제 완료: product_id=%s", product_id)
+        return {"deleted": True, "product_id": product_id}
+
     @app.get("/api/webhooks/instagram", response_class=PlainTextResponse)
     async def verify_webhook(
         hub_mode: str | None = Query(default=None, alias="hub.mode"),
