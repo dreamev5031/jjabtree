@@ -1,0 +1,27 @@
+.todaypicks-hero {
+  width: 100%;
+  min-width: 0;
+  margin: 0 0 18px;
+}
+
+.brand-banner {
+  display: block;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 3 / 1;
+  object-fit: cover;
+  border: 1px solid rgba(101, 79, 224, 0.14);
+  border-radius: 20px;
+  background: #f7f1eb;
+  box-shadow: 0 12px 30px rgba(72, 55, 156, 0.1);
+}
+
+@media (max-width: 480px) {
+  .todaypicks-hero {
+    margin-bottom: 14px;
+  }
+
+  .brand-banner {
+    border-radius: 15px;
+  }
+}
