@@ -299,7 +299,7 @@ class Database:
             if not row:
                 return None
             conn.execute("DELETE FROM products WHERE id = ?", (product_id,))
-        return dict(row) if row else None
+        return dict(row)
 
     def get_active_product_by_media(self, media_id: str) -> dict[str, Any] | None:
         with self.connect() as conn:
