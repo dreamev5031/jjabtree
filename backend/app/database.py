@@ -203,7 +203,7 @@ class Database:
                 SELECT id, product_name, purchase_link, photo_url, ig_permalink, created_at
                 FROM products
                 WHERE status = 'active'
-                ORDER BY id ASC
+                ORDER BY id DESC
                 """
             ).fetchall()
         return [dict(row) for row in rows]
@@ -299,7 +299,7 @@ class Database:
             if not row:
                 return None
             conn.execute("DELETE FROM products WHERE id = ?", (product_id,))
-        return dict(row)
+        return dict(row) if row else None
 
     def get_active_product_by_media(self, media_id: str) -> dict[str, Any] | None:
         with self.connect() as conn:
