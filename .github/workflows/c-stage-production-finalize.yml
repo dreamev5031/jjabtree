@@ -63,3 +63,5 @@ jobs:
           path: jjabtree-c-stage-result.json
           if-no-files-found: error
           retention-days: 30
+
+# Stage 1 webhook activation cross-service re-probe marker.
