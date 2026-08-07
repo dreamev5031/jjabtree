@@ -6,7 +6,7 @@ import os
 import secrets
 import unicodedata
 from dataclasses import dataclass
-from typing import Any, Iterable
+from typing import Any, Callable, Iterable, Sequence
 
 from .database import Database
 from .forwarding import AutocardForwarder
@@ -14,8 +14,9 @@ from .instagram import InstagramClient
 
 logger = logging.getLogger(__name__)
 DEFAULT_PUBLIC_SITE_URL = "https://jjabtree.pages.dev"
+MAX_PUBLIC_REPLY_LENGTH = 180
 
-DM_TEMPLATES = (
+LEGACY_DM_TEMPLATES = (
     "요청하신 상품은 여기서 확인하세요: {페이지링크} ({번호}번)",
     "{페이지링크} 에서 {번호}번 상품 확인해보세요!",
     "여기 확인해보세요 👉 {페이지링크} ({번호}번)",
@@ -23,12 +24,18 @@ DM_TEMPLATES = (
     "메시지 확인 완료! {페이지링크} ({번호}번)",
 )
 PUBLIC_REPLY_TEMPLATES = (
-    "DM 보냈어요 확인해주세요 💌",
-    "DM 확인해보세요! 📩",
-    "DM 드렸어요~ 확인 부탁드려요 😊",
-    "요청하신 내용은 DM으로 보내드렸어요 🙌",
-    "메시지함을 확인해주세요 ✨",
+    "DM으로 보내드렸어요. 안 보이면 메시지 요청함도 확인해주세요.",
+    "디엠 발송했어요. 보이지 않으면 요청함을 확인해주세요.",
+    "요청하신 내용은 DM으로 보냈습니다. 안 뜨면 메시지 요청함을 봐주세요.",
+    "DM으로 안내드렸어요. 확인되지 않으면 요청함도 확인해주세요.",
+    "디엠 보내드렸습니다. 안 보일 경우 메시지 요청함을 확인해주세요.",
+    "요청하신 링크는 DM으로 발송했어요. 안 보이면 요청함도 살펴봐주세요.",
+    "DM 전송 완료했습니다. 받은편지함에 없으면 메시지 요청함을 확인해주세요.",
 )
+
+FORWARD_NOT_CONFIGURED = "not_configured"
+FORWARD_ACCEPTED = "accepted"
+FORWARD_FAILED = "failed"
 
 
 @dataclass(frozen=True)
@@ -55,6 +62,43 @@ def format_product_number(product_id: int) -> str:
 
 def public_site_url_from_env() -> str:
     return (os.environ.get("PUBLIC_SITE_URL", DEFAULT_PUBLIC_SITE_URL).strip() or DEFAULT_PUBLIC_SITE_URL).rstrip("/")
+
+
+def validate_public_reply_template(template: str) -> str:
+    text = template.strip()
+    if not text:
+        raise ValueError("empty_public_reply_template")
+    folded = text.casefold()
+    if "dm" not in folded and "디엠" not in text:
+        raise ValueError("public_reply_dm_notice_required")
+    if "요청함" not in text and "메시지 요청함" not in text:
+        raise ValueError("public_reply_request_inbox_notice_required")
+    if "http://" in folded or "https://" in folded or "www." in folded:
+        raise ValueError("public_reply_link_forbidden")
+    if len(text) > MAX_PUBLIC_REPLY_LENGTH:
+        raise ValueError("public_reply_template_too_long")
+    return text
+
+
+def validate_public_reply_templates(templates: Sequence[str]) -> tuple[str, ...]:
+    if not templates:
+        raise ValueError("public_reply_templates_required")
+    validated = tuple(validate_public_reply_template(template) for template in templates)
+    if len(set(validated)) != len(validated):
+        raise ValueError("duplicate_public_reply_template")
+    return validated
+
+
+def choose_public_reply_template(
+    templates: Sequence[str] = PUBLIC_REPLY_TEMPLATES,
+    *,
+    chooser: Callable[[Sequence[str]], str] = secrets.choice,
+) -> str:
+    validated = validate_public_reply_templates(templates)
+    return validate_public_reply_template(chooser(validated))
+
+
+validate_public_reply_templates(PUBLIC_REPLY_TEMPLATES)
 
 
 def _entry_changes(entry: dict[str, Any]) -> Iterable[dict[str, Any]]:
@@ -107,10 +151,10 @@ def _forwarder_from_env() -> AutocardForwarder | None:
     return AutocardForwarder(endpoint=endpoint, secret=secret, account_id=account_id)
 
 
-async def _forward_verified_event(event: CommentEvent) -> None:
+async def _forward_verified_event(event: CommentEvent) -> str:
     forwarder = _forwarder_from_env()
     if forwarder is None:
-        return
+        return FORWARD_NOT_CONFIGURED
     canonical = "\x1f".join([
         event.comment_id,
         event.media_id,
@@ -122,6 +166,8 @@ async def _forward_verified_event(event: CommentEvent) -> None:
     result = await forwarder.forward(event, raw_event_hash=raw_event_hash)
     if not result.ok:
         logger.warning("autocard forwarding deferred/failed: status=%s error=%s", result.status_code, result.error)
+        return FORWARD_FAILED
+    return FORWARD_ACCEPTED
 
 
 async def process_comment_event(
@@ -132,11 +178,13 @@ async def process_comment_event(
     public_site_url: str | None = None,
 ) -> None:
     # This function is reached only after the main webhook route validates Meta's raw-body signature.
-    # Forwarding is isolated so a downstream failure never blocks legacy jjabtree behavior.
+    # When Autocard forwarding is configured, Autocard exclusively owns Private Reply DM delivery.
+    # jjabtree keeps the public reply responsibility and never falls back to a second DM.
     try:
-        await _forward_verified_event(event)
+        forward_status = await _forward_verified_event(event)
     except Exception as exc:  # noqa: BLE001
-        logger.warning("autocard forwarding failed without blocking legacy processing: type=%s", exc.__class__.__name__)
+        logger.warning("autocard forwarding failed without exposing details: type=%s", exc.__class__.__name__)
+        forward_status = FORWARD_FAILED if _forwarder_from_env() is not None else FORWARD_NOT_CONFIGURED
 
     product = database.get_active_product_by_media(event.media_id)
     if not product:
@@ -157,20 +205,37 @@ async def process_comment_event(
         logger.info("중복 댓글 이벤트 건너뜀: comment_id=%s", event.comment_id)
         return
 
-    product_number = format_product_number(product["id"])
-    page_url = (public_site_url or public_site_url_from_env()).rstrip("/")
-    dm_message = secrets.choice(DM_TEMPLATES).format(번호=product_number, 페이지링크=page_url)
-    try:
-        await instagram.send_private_reply(event.comment_id, dm_message)
-    except Exception as exc:  # noqa: BLE001
-        database.complete_comment(event.comment_id, status="failed", dm_message=dm_message, error_message=str(exc)[:1000])
+    if forward_status == FORWARD_FAILED:
+        database.complete_comment(
+            event.comment_id,
+            status="failed",
+            error_message="autocard_forward_failed",
+        )
         database.complete_public_reply(event.comment_id, status="skipped")
-        logger.exception("Instagram DM 발송 실패: comment_id=%s", event.comment_id)
+        logger.warning("Autocard forwarding failed; DM and public reply blocked: comment_id=%s", event.comment_id)
         return
-    database.complete_comment(event.comment_id, status="sent", dm_message=dm_message)
-    logger.info("Instagram DM 발송 완료: comment_id=%s, product_id=%s", event.comment_id, product["id"])
 
-    reply_message = secrets.choice(PUBLIC_REPLY_TEMPLATES)
+    if forward_status == FORWARD_ACCEPTED:
+        database.complete_comment(
+            event.comment_id,
+            status="ignored",
+            error_message="private_reply_delegated_to_autocard",
+        )
+    else:
+        product_number = format_product_number(product["id"])
+        page_url = (public_site_url or public_site_url_from_env()).rstrip("/")
+        dm_message = secrets.choice(LEGACY_DM_TEMPLATES).format(번호=product_number, 페이지링크=page_url)
+        try:
+            await instagram.send_private_reply(event.comment_id, dm_message)
+        except Exception as exc:  # noqa: BLE001
+            database.complete_comment(event.comment_id, status="failed", dm_message=dm_message, error_message=str(exc)[:1000])
+            database.complete_public_reply(event.comment_id, status="skipped")
+            logger.exception("Instagram DM 발송 실패: comment_id=%s", event.comment_id)
+            return
+        database.complete_comment(event.comment_id, status="sent", dm_message=dm_message)
+        logger.info("Instagram DM 발송 완료: comment_id=%s, product_id=%s", event.comment_id, product["id"])
+
+    reply_message = choose_public_reply_template()
     try:
         await instagram.send_public_reply(event.comment_id, reply_message)
     except Exception as exc:  # noqa: BLE001
