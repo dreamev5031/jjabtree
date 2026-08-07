@@ -23,6 +23,10 @@ LEGACY_DM_TEMPLATES = (
     "{번호}번 상품이에요! {페이지링크} 에서 바로 보실 수 있어요",
     "메시지 확인 완료! {페이지링크} ({번호}번)",
 )
+# Backward-compatible name for standalone-mode tests and imports. Production
+# forwarding never uses this list because Autocard exclusively owns Private Reply.
+DM_TEMPLATES = LEGACY_DM_TEMPLATES
+
 PUBLIC_REPLY_TEMPLATES = (
     "DM으로 보내드렸어요. 안 보이면 메시지 요청함도 확인해주세요.",
     "디엠 발송했어요. 보이지 않으면 요청함을 확인해주세요.",
