@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import importlib.util
 import json
 import os
@@ -32,7 +33,12 @@ def _safe_product(item: dict[str, Any]) -> dict[str, Any] | None:
     }
 
 
+def _hash_identifier(value: str) -> str:
+    return hashlib.sha256(value.strip().encode("utf-8")).hexdigest()[:16] if value.strip() else ""
+
+
 def main() -> None:
+    status_info = finalizer._json_command("railway", "status", "--json")
     service_id, service_name = finalizer.discover_service()
     variables = finalizer.normalize_variables(
         finalizer._json_command(
@@ -75,10 +81,16 @@ def main() -> None:
 
     safe_public = [safe for item in public_products if isinstance(item, dict) and (safe := _safe_product(item))]
     safe_admin = [safe for item in admin_products if isinstance(item, dict) and (safe := _safe_product(item))]
+    project_id = str(status_info.get("id") or status_info.get("projectId") or "") if isinstance(status_info, dict) else ""
+    project_name = str(status_info.get("name") or status_info.get("projectName") or "") if isinstance(status_info, dict) else ""
 
     result = {
         "ok": True,
+        "railwayProjectId": project_id,
+        "railwayProjectName": project_name,
+        "railwayServiceId": service_id,
         "serviceName": service_name,
+        "instagramAccountHash": _hash_identifier(variables.get("IG_BUSINESS_ACCOUNT_ID", "")),
         "publicBaseUrl": base_url,
         "health": "ok",
         "callbackPath": "/api/webhooks/instagram",
@@ -104,6 +116,7 @@ def main() -> None:
             handle.write(f"- health: {result['health']}\n")
             handle.write(f"- active_product_count: {result['activeProductCount']}\n")
             handle.write(f"- admin_product_count: {result['adminProductCount']}\n")
+            handle.write(f"- instagram_account_hash: {result['instagramAccountHash']}\n")
             handle.write("- secrets_printed: false\n")
             handle.write("- raw_webhook_payload_printed: false\n")
 
