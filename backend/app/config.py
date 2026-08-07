@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import logging
 import os
 from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import urlparse
+
+logger = logging.getLogger(__name__)
 
 
 class ConfigurationError(RuntimeError):
@@ -67,8 +70,13 @@ class Settings:
         forward_secret = os.environ.get("WEBHOOK_FORWARD_SECRET", "").strip() or None
         forward_url = os.environ.get("AUTOCARD_INTERNAL_BASE_URL", "").strip() or None
         if bool(forward_secret) != bool(forward_url):
-            raise ConfigurationError("WEBHOOK_FORWARD_SECRET과 AUTOCARD_INTERNAL_BASE_URL은 함께 설정해야 합니다.")
-        if forward_url:
+            logger.warning(
+                "autocard forwarding disabled: WEBHOOK_FORWARD_SECRET and "
+                "AUTOCARD_INTERNAL_BASE_URL must both be configured"
+            )
+            forward_secret = None
+            forward_url = None
+        elif forward_url:
             forward_url = _http_url("AUTOCARD_INTERNAL_BASE_URL", forward_url)
 
         return cls(
