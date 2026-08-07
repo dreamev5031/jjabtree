@@ -1,0 +1,98 @@
+name: jjabtree media ownership diagnose 20260807
+
+on:
+  push:
+    branches:
+      - ops/token-permission-verify-20260807
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - run: npm install --global @railway/cli@latest
+      - name: Diagnose ownership without exposing identifiers
+        shell: bash
+        run: |
+          python - <<'PY'
+          import hashlib,json,subprocess,urllib.error,urllib.parse,urllib.request
+          from pathlib import Path
+          TARGET='17895639444590243'; SHORTCODE='DbuhF1OG7hT'
+          result={'ok':False,'secretsPrinted':False,'metaWriteCalls':0,'publicReplyCalls':0,'privateReplyCalls':0,'dmCalls':0}
+          def h(v):return hashlib.sha256(v.encode()).hexdigest()[:16] if v else None
+          def rj(*a):
+              p=subprocess.run(a,text=True,capture_output=True)
+              if p.returncode:raise RuntimeError('railway_command_failed')
+              return json.loads(p.stdout)
+          def walk(v):
+              if isinstance(v,dict):
+                  yield v
+                  for x in v.values():yield from walk(x)
+              elif isinstance(v,list):
+                  for x in v:yield from walk(x)
+          def norm(v):
+              if isinstance(v,dict):return {str(k):str(x or '') for k,x in v.items()}
+              z={}
+              for i in v if isinstance(v,list) else []:
+                  if isinstance(i,dict):
+                      k=str(i.get('name') or i.get('key') or '')
+                      if k:z[k]=str(i.get('value') or '')
+              return z
+          def req(url,headers):
+              q=urllib.request.Request(url,headers={'Accept':'application/json',**headers})
+              try:
+                  with urllib.request.urlopen(q,timeout=45) as r:
+                      raw=r.read();return r.status,json.loads(raw.decode()) if raw else {}
+              except urllib.error.HTTPError as e:
+                  raw=e.read()
+                  try:b=json.loads(raw.decode()) if raw else {}
+                  except Exception:b={}
+                  return e.code,b
+          def code(b):
+              e=b.get('error',{}) if isinstance(b,dict) else {}
+              return e.get('code') if isinstance(e,dict) else None
+          try:
+              try:data=rj('railway','service','list','--json')
+              except Exception:data=rj('railway','status','--json')
+              c=[]
+              for i in walk(data):
+                  sid=str(i.get('id') or i.get('serviceId') or '').strip();n=str(i.get('name') or i.get('serviceName') or '').strip();s=json.dumps(i).lower()
+                  if sid and n:
+                      score=(100 if n.lower()=='jjabtree' else 70 if n.lower()=='backend' else 0)+(150 if 'dreamev5031/jjabtree' in s else 0)
+                      if score:c.append((score,sid))
+              sid=sorted(c,reverse=True)[0][1]
+              v=norm(rj('railway','variable','list','--service',sid,'--environment','production','--json'))
+              token=v.get('IG_ACCESS_TOKEN','').strip();configured=v.get('IG_BUSINESS_ACCOUNT_ID','').strip();ver=v.get('IG_GRAPH_API_VERSION','v25.0').strip() or 'v25.0'
+              if not ver.startswith('v'):ver='v'+ver
+              root=f'https://graph.instagram.com/{ver}';auth={'Authorization':'Bearer '+token}
+              me_s,me_b=req(f'{root}/me?fields=id,username',auth);me_id=str(me_b.get('id') or '') if isinstance(me_b,dict) else ''
+              cfg_s,cfg_b=req(f'{root}/{urllib.parse.quote(configured)}?fields=id,username',auth)
+              direct_s,direct_b=req(f'{root}/{TARGET}?fields=id,permalink',auth)
+              media_s,media_b=req(f'{root}/{urllib.parse.quote(configured)}/media?fields=id,permalink&limit=100',auth)
+              found='';count=0
+              data_list=media_b.get('data',[]) if isinstance(media_b,dict) else []
+              if isinstance(data_list,list):
+                  for item in data_list:
+                      if not isinstance(item,dict):continue
+                      count+=1
+                      permalink=str(item.get('permalink') or '')
+                      if SHORTCODE.lower() in permalink.lower():found=str(item.get('id') or '')
+              target_in_list=any(str(item.get('id') or '')==TARGET for item in data_list if isinstance(item,dict)) if isinstance(data_list,list) else False
+              result.update({'ok':True,'tokenFingerprint':h(token),'configuredAccountFingerprint':h(configured),'meAccountFingerprint':h(me_id),'configuredMatchesMe':bool(configured and me_id and configured==me_id),'configuredAccountReadStatus':cfg_s,'configuredAccountMetaCode':code(cfg_b),'meReadStatus':me_s,'meMetaCode':code(me_b),'directMediaStatus':direct_s,'directMediaMetaCode':code(direct_b),'accountMediaStatus':media_s,'accountMediaMetaCode':code(media_b),'scannedMediaCount':count,'targetFoundByShortcode':bool(found),'resolvedMediaFingerprint':h(found),'targetMediaFingerprint':h(TARGET),'resolvedMatchesTarget':bool(found and found==TARGET),'targetIdPresentInMediaList':target_in_list})
+          except Exception as e:result['safeError']=str(e)[:120]
+          Path('jjabtree-media-ownership-diagnose.json').write_text(json.dumps(result,ensure_ascii=False,indent=2,sort_keys=True),encoding='utf-8')
+          if not result['ok']:raise SystemExit(1)
+          PY
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: jjabtree-media-ownership-diagnose-20260807
+          path: jjabtree-media-ownership-diagnose.json
+          if-no-files-found: error
+          retention-days: 3
