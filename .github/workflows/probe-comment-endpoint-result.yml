@@ -1,0 +1,66 @@
+name: Probe Comment Endpoint Result
+
+on:
+  push:
+    branches:
+      - "ops/live-manifest-export-*"
+
+permissions:
+  contents: write
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+      RESULT_BRANCH: ops/instagram-live-results
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: npm install --global @railway/cli@latest
+      - run: python -m pip install --disable-pip-version-check cryptography==45.0.6
+      - run: python .github/scripts/probe_comment_endpoint.py
+      - name: Publish sanitized result
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          MAIN_SHA="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/main" --jq '.object.sha')"
+          gh api --method POST "repos/${GITHUB_REPOSITORY}/git/refs" \
+            -f ref="refs/heads/${RESULT_BRANCH}" -f sha="${MAIN_SHA}" >/dev/null 2>&1 || true
+          PATH_NAME='.github/ops-results/comment-endpoint-probe.json'
+          CONTENT="$(base64 -w0 comment-endpoint-probe.json)"
+          EXISTING_SHA="$(gh api "repos/${GITHUB_REPOSITORY}/contents/${PATH_NAME}?ref=${RESULT_BRANCH}" --jq '.sha' 2>/dev/null || true)"
+          if [ -n "${EXISTING_SHA}" ]; then
+            gh api --method PUT "repos/${GITHUB_REPOSITORY}/contents/${PATH_NAME}" \
+              -f message='[result] Update sanitized comment endpoint probe' \
+              -f branch="${RESULT_BRANCH}" -f content="${CONTENT}" -f sha="${EXISTING_SHA}" >/dev/null
+          else
+            gh api --method PUT "repos/${GITHUB_REPOSITORY}/contents/${PATH_NAME}" \
+              -f message='[result] Add sanitized comment endpoint probe' \
+              -f branch="${RESULT_BRANCH}" -f content="${CONTENT}" >/dev/null
+          fi
+          python - <<'PY'
+          import json, pathlib, re
+          d=json.loads(pathlib.Path('comment-endpoint-probe.json').read_text())
+          root=pathlib.Path('probe-markers'); root.mkdir(exist_ok=True)
+          for name,item in d.get('variants',{}).items():
+              vals=[f'{name}_status_{item.get("status")}',f'{name}_code_{item.get("code") or "none"}',f'{name}_subcode_{item.get("subcode") or "none"}']
+              for value in vals:
+                  safe=re.sub(r'[^A-Za-z0-9_.-]+','_',value)
+                  (root/safe).write_text('safe marker\n')
+          PY
+          for file in probe-markers/*; do
+            name="$(basename "$file")"
+            path=".github/ops-results/markers/${name}"
+            content="$(base64 -w0 "$file")"
+            sha="$(gh api "repos/${GITHUB_REPOSITORY}/contents/${path}?ref=${RESULT_BRANCH}" --jq '.sha' 2>/dev/null || true)"
+            if [ -n "$sha" ]; then
+              gh api --method PUT "repos/${GITHUB_REPOSITORY}/contents/${path}" -f message="[result] Update ${name}" -f branch="${RESULT_BRANCH}" -f content="$content" -f sha="$sha" >/dev/null
+            else
+              gh api --method PUT "repos/${GITHUB_REPOSITORY}/contents/${path}" -f message="[result] Add ${name}" -f branch="${RESULT_BRANCH}" -f content="$content" >/dev/null
+            fi
+          done
