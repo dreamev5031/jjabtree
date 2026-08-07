@@ -1,0 +1,50 @@
+name: Resolve Target Media Result
+
+on:
+  push:
+    branches:
+      - "ops/live-manifest-export-*"
+
+permissions:
+  contents: write
+
+jobs:
+  resolve:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+      RESULT_BRANCH: ops/instagram-live-results
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: npm install --global @railway/cli@latest
+      - run: python -m pip install --disable-pip-version-check cryptography==45.0.6
+      - run: >-
+          python -m py_compile
+          .github/scripts/railway_production_diagnose.py
+          .github/scripts/railway_production_remediate.py
+          .github/scripts/apply_instagram_credential_envelope.py
+          .github/scripts/resolve_target_media.py
+      - run: python .github/scripts/resolve_target_media.py
+      - name: Publish sanitized result branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          MAIN_SHA="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/main" --jq '.object.sha')"
+          gh api --method POST "repos/${GITHUB_REPOSITORY}/git/refs" \
+            -f ref="refs/heads/${RESULT_BRANCH}" -f sha="${MAIN_SHA}" >/dev/null 2>&1 || true
+          CONTENT="$(base64 -w0 resolved-target-media.json)"
+          EXISTING_SHA="$(gh api "repos/${GITHUB_REPOSITORY}/contents/.github/ops-results/resolved-target-media.json?ref=${RESULT_BRANCH}" --jq '.sha' 2>/dev/null || true)"
+          if [ -n "${EXISTING_SHA}" ]; then
+            gh api --method PUT "repos/${GITHUB_REPOSITORY}/contents/.github/ops-results/resolved-target-media.json" \
+              -f message='[result] Update sanitized target media resolution' \
+              -f branch="${RESULT_BRANCH}" -f content="${CONTENT}" -f sha="${EXISTING_SHA}" >/dev/null
+          else
+            gh api --method PUT "repos/${GITHUB_REPOSITORY}/contents/.github/ops-results/resolved-target-media.json" \
+              -f message='[result] Add sanitized target media resolution' \
+              -f branch="${RESULT_BRANCH}" -f content="${CONTENT}" >/dev/null
+          fi
