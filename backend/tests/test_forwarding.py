@@ -37,6 +37,26 @@ def test_dedicated_verify_token_is_not_admin_key(monkeypatch, tmp_path):
         Settings.from_env()
 
 
+def test_partial_forward_configuration_does_not_block_startup(monkeypatch, tmp_path):
+    monkeypatch.setenv("IG_ACCESS_TOKEN", "token")
+    monkeypatch.setenv("IG_BUSINESS_ACCOUNT_ID", "account")
+    monkeypatch.setenv("ADMIN_APP_KEY", "admin")
+    monkeypatch.setenv("META_APP_SECRET", "secret")
+    monkeypatch.setenv("META_WEBHOOK_VERIFY_TOKEN", "verify")
+    monkeypatch.setenv("WEBHOOK_FORWARD_SECRET", "forward-secret")
+    monkeypatch.delenv("AUTOCARD_INTERNAL_BASE_URL", raising=False)
+    monkeypatch.setenv("DB_PATH", str(tmp_path / "db.sqlite"))
+    monkeypatch.setenv("UPLOAD_DIR", str(tmp_path / "uploads"))
+
+    settings = Settings.from_env()
+
+    assert settings.webhook_forward_secret is None
+    assert settings.autocard_internal_base_url is None
+    from fastapi.testclient import TestClient
+    with TestClient(create_app(settings)) as client:
+        assert client.get("/health").status_code == 200
+
+
 def test_forward_signature_and_minimal_payload():
     event = CommentEvent("comment-1", "media-1", "링크", "user-1", "tester")
     payload = event_payload(event, account_id="account-1", raw_event_hash="a" * 64)
