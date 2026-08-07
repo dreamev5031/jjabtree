@@ -1,0 +1,62 @@
+name: jjabtree Railway Production Remediate
+
+on:
+  workflow_dispatch:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: jjabtree-railway-production-remediate
+  cancel-in-progress: false
+
+jobs:
+  remediate:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (
+        github.event.workflow_run.conclusion == 'success' &&
+        github.event.workflow_run.head_branch == 'main' &&
+        contains(github.event.workflow_run.display_title, '[railway-remediate]')
+      )
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+      AUTOCARD_PRODUCTION_URL: https://autocard-production-726e.up.railway.app
+    steps:
+      - name: Checkout remediation runner
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Railway CLI
+        run: npm install --global @railway/cli@latest
+
+      - name: Compile remediation runner
+        run: >-
+          python -m py_compile
+          .github/scripts/railway_production_diagnose.py
+          .github/scripts/railway_production_remediate.py
+
+      - name: Set missing URL and redeploy production
+        run: >-
+          python .github/scripts/railway_production_remediate.py
+          --autocard-url "$AUTOCARD_PRODUCTION_URL"
+          --output jjabtree-railway-remediation.json
+
+      - name: Upload safe remediation result
+        if: always() && hashFiles('jjabtree-railway-remediation.json') != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: jjabtree-railway-remediation
+          path: jjabtree-railway-remediation.json
+          if-no-files-found: error
+          retention-days: 30
