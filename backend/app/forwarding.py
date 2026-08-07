@@ -5,15 +5,20 @@ import hmac
 import json
 import logging
 import time
-import uuid
 from dataclasses import dataclass
-from typing import Any, Callable
+from typing import Any, Callable, Protocol
 
 import httpx
 
-from .webhooks import CommentEvent
-
 logger = logging.getLogger(__name__)
+
+
+class CommentEventLike(Protocol):
+    comment_id: str
+    media_id: str
+    text: str
+    commenter_id: str | None
+    commenter_username: str | None
 
 
 @dataclass(frozen=True)
@@ -23,7 +28,7 @@ class ForwardResult:
     error: str | None = None
 
 
-def event_payload(event: CommentEvent, *, account_id: str, raw_event_hash: str, event_time: str | int | None = None) -> dict[str, Any]:
+def event_payload(event: CommentEventLike, *, account_id: str, raw_event_hash: str, event_time: str | int | None = None) -> dict[str, Any]:
     return {
         "source_project": "jjabtree-gateway",
         "instagram_account_id": account_id,
@@ -61,7 +66,7 @@ class AutocardForwarder:
     def configured(self) -> bool:
         return bool(self.endpoint and self.secret and self.account_id)
 
-    async def forward(self, event: CommentEvent, *, raw_event_hash: str, event_time: str | int | None = None) -> ForwardResult:
+    async def forward(self, event: CommentEventLike, *, raw_event_hash: str, event_time: str | int | None = None) -> ForwardResult:
         if not self.configured:
             return ForwardResult(False, error="not_configured")
         payload = event_payload(event, account_id=self.account_id, raw_event_hash=raw_event_hash, event_time=event_time)
