@@ -71,6 +71,41 @@ def test_forwarder_posts_signed_raw_body():
     assert request.url.path == "/api/internal/instagram/comment-events"
 
 
+def test_forward_probe_success_and_failure():
+    captured = []
+    def ok_handler(request):
+        captured.append(request)
+        return httpx.Response(200, json={"matched": True})
+    forwarder = AutocardForwarder(
+        endpoint="https://autocard.example",
+        secret="forward-secret",
+        account_id="account-1",
+        client_factory=lambda **kwargs: httpx.AsyncClient(transport=httpx.MockTransport(ok_handler), **kwargs),
+    )
+    result = asyncio.run(forwarder.probe())
+    assert result.ok and result.status_code == 200
+    request = captured[0]
+    timestamp = request.headers["X-Autocard-Timestamp"]
+    assert request.url.path == "/api/internal/instagram/forward-probe"
+    assert request.headers["X-Autocard-Signature"] == sign("forward-secret", timestamp, request.content)
+    assert request.headers["X-Autocard-Event-Id"].startswith("forward-probe:")
+
+    rejected = AutocardForwarder(
+        endpoint="https://autocard.example",
+        secret="forward-secret",
+        account_id="account-1",
+        client_factory=lambda **kwargs: httpx.AsyncClient(transport=httpx.MockTransport(lambda request: httpx.Response(403)), **kwargs),
+    )
+    failed = asyncio.run(rejected.probe())
+    assert not failed.ok and failed.status_code == 403
+
+
+def test_forward_probe_requires_configuration():
+    forwarder = AutocardForwarder(endpoint="", secret="", account_id="")
+    result = asyncio.run(forwarder.probe())
+    assert not result.ok and result.error == "not_configured"
+
+
 def test_forward_failure_does_not_block_legacy_processing(settings, monkeypatch):
     from app.database import Database
 
