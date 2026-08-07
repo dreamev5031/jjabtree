@@ -1,0 +1,57 @@
+name: jjabtree C-stage Finalization
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: jjabtree-c-stage-production-finalization
+  cancel-in-progress: false
+
+jobs:
+  finalize:
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.head_branch == 'main' &&
+      contains(github.event.workflow_run.display_title, '[c-stage-finalize]')
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+      TARGET_SHA: ${{ github.event.workflow_run.head_sha }}
+    steps:
+      - name: Checkout verified main SHA
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TARGET_SHA }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Railway CLI
+        run: npm install --global @railway/cli@latest
+
+      - name: Compile finalization runner
+        run: python -m py_compile .github/scripts/jjabtree_c_stage_finalize.py
+
+      - name: Verify deployment, callback, and signed probe
+        run: >-
+          python .github/scripts/jjabtree_c_stage_finalize.py
+          --target-sha "$TARGET_SHA"
+          --output jjabtree-c-stage-result.json
+
+      - name: Upload safe finalization result
+        if: always() && hashFiles('jjabtree-c-stage-result.json') != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: jjabtree-c-stage-finalization-${{ env.TARGET_SHA }}
+          path: jjabtree-c-stage-result.json
+          if-no-files-found: error
+          retention-days: 30
