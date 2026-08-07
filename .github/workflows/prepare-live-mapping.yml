@@ -1,0 +1,50 @@
+name: jjabtree Live Mapping Preparation
+
+on:
+  push:
+    branches:
+      - "ops/live-manifest-export-*"
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: jjabtree-live-mapping-preparation
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+    steps:
+      - name: Checkout preparation branch
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Railway CLI
+        run: npm install --global @railway/cli@latest
+
+      - name: Compile preparation runner
+        run: >-
+          python -m py_compile
+          .github/scripts/jjabtree_c_stage_finalize.py
+          .github/scripts/prepare_live_mapping.py
+
+      - name: Prepare mapped Instagram product
+        run: python .github/scripts/prepare_live_mapping.py
+
+      - name: Upload sanitized mapping result
+        if: always() && hashFiles('jjabtree-live-mapping-result.json') != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: jjabtree-live-mapping-${{ github.sha }}
+          path: jjabtree-live-mapping-result.json
+          if-no-files-found: error
+          retention-days: 7
