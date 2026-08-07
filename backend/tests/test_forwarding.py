@@ -126,7 +126,7 @@ def test_forward_probe_requires_configuration():
     assert not result.ok and result.error == "not_configured"
 
 
-def test_forward_failure_does_not_block_legacy_processing(settings, monkeypatch):
+def test_forward_failure_blocks_dm_and_false_public_reply(settings, monkeypatch):
     from app.database import Database
 
     database = Database(settings.db_path)
@@ -158,8 +158,12 @@ def test_forward_failure_does_not_block_legacy_processing(settings, monkeypatch)
 
     instagram = Instagram()
     asyncio.run(process_comment_event(CommentEvent("comment-1", "media-1", "링크"), database=database, instagram=instagram))
-    assert instagram.dm == 1
-    assert instagram.reply == 1
+    assert instagram.dm == 0
+    assert instagram.reply == 0
+    log = database.list_dm_logs()[0]
+    assert log["status"] == "failed"
+    assert log["error_message"] == "autocard_forward_failed"
+    assert log["reply_status"] == "skipped"
 
 
 def test_webhook_invalid_signature_rejected_and_valid_signature_returns_200(settings):
