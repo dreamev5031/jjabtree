@@ -26,6 +26,7 @@ TARGET_MEDIA_ID = "17895639444590243"
 TARGET_PERMALINK = "https://www.instagram.com/p/DbuhF1OG7hT/"
 TARGET_IMAGE_URL = "https://autocard-production-726e.up.railway.app/media/uploads/피지오겔-데일리-모이스쳐-테라피-페이셜-크림-75ml-1개-567a9d867c6f43b1846c780e725027f3.jpg"
 TARGET_TRIGGER = "링크"
+OUTPUT = Path("jjabtree-live-mapping-result.json")
 
 
 class PrepareError(RuntimeError):
@@ -58,6 +59,29 @@ def request_json(
     except (UnicodeDecodeError, json.JSONDecodeError):
         parsed = {}
     return status, parsed if isinstance(parsed, dict) else {}
+
+
+def write_result(result: dict[str, Any]) -> None:
+    safe = {
+        **result,
+        "secretsPrinted": False,
+        "accessTokensPrinted": False,
+        "rawWebhookPayloadPrinted": False,
+    }
+    OUTPUT.write_text(json.dumps(safe, ensure_ascii=False, indent=2, sort_keys=True), encoding="utf-8")
+    print(json.dumps(safe, ensure_ascii=False))
+
+
+def set_status(base_url: str, admin_key: str, product_id: int, status_value: str) -> None:
+    raw = json.dumps({"status": status_value}, separators=(",", ":")).encode("utf-8")
+    response_status, _ = request_json(
+        "PATCH",
+        f"{base_url}/api/admin/products/{product_id}/status",
+        headers={"X-App-Key": admin_key},
+        raw=raw,
+    )
+    if response_status != 200:
+        raise PrepareError(f"mapped_product_{status_value}_failed")
 
 
 def download_image() -> tuple[bytes, str, str]:
@@ -167,16 +191,7 @@ def main() -> None:
     if product_id <= 0:
         raise PrepareError("mapped_product_id_invalid")
     if str(existing.get("status") or "") != "active":
-        payload = json.dumps({"status": "active"}, separators=(",", ":")).encode("utf-8")
-        update_status, update_body = request_json(
-            "PATCH",
-            f"{base_url}/api/admin/products/{product_id}/status",
-            headers={"X-App-Key": admin_key},
-            raw=payload,
-        )
-        if update_status != 200:
-            raise PrepareError("mapped_product_activation_failed")
-        existing = update_body.get("product") if isinstance(update_body, dict) else existing
+        set_status(base_url, admin_key, product_id, "active")
 
     check_status, check_body = request_json(
         "POST",
@@ -185,13 +200,46 @@ def main() -> None:
         raw=b"{}",
     )
     if check_status != 200:
+        set_status(base_url, admin_key, product_id, "inactive")
+        write_result({
+            "ok": False,
+            "safeErrorCode": f"media_check_http_{check_status}",
+            "serviceName": service_name,
+            "productId": product_id,
+            "productName": TARGET_NAME,
+            "instagramMediaIdAbbreviated": f"{TARGET_MEDIA_ID[:6]}…{TARGET_MEDIA_ID[-4:]}",
+            "status": "inactive",
+            "created": created,
+        })
         raise PrepareError(f"media_check_failed:{check_status}")
-    checked = check_body.get("product")
-    if not isinstance(checked, dict) or checked.get("media_check_status") != "ok":
+
+    check = check_body.get("check") if isinstance(check_body.get("check"), dict) else {}
+    checked = check_body.get("product") if isinstance(check_body.get("product"), dict) else {}
+    media_status = str(check.get("status") or checked.get("media_check_status") or "unknown")
+    if media_status != "ok":
+        set_status(base_url, admin_key, product_id, "inactive")
+        write_result({
+            "ok": False,
+            "safeErrorCode": "media_check_not_ok",
+            "serviceName": service_name,
+            "productId": product_id,
+            "productName": TARGET_NAME,
+            "instagramMediaIdAbbreviated": f"{TARGET_MEDIA_ID[:6]}…{TARGET_MEDIA_ID[-4:]}",
+            "triggerPhrase": TARGET_TRIGGER,
+            "status": "inactive",
+            "mediaCheckStatus": media_status,
+            "mediaCheckHttpStatus": check.get("http_status"),
+            "mediaCheckErrorCode": check.get("error_code"),
+            "mediaCheckErrorSubcode": check.get("error_subcode"),
+            "created": created,
+            "webhookSubscriptionOk": subscription_ok,
+        })
         raise PrepareError("media_check_not_ok")
     if str(checked.get("trigger_phrase") or "").strip() != TARGET_TRIGGER:
+        set_status(base_url, admin_key, product_id, "inactive")
         raise PrepareError("trigger_phrase_mismatch")
     if str(checked.get("ig_media_id") or "").strip() != TARGET_MEDIA_ID:
+        set_status(base_url, admin_key, product_id, "inactive")
         raise PrepareError("media_id_mismatch")
     if str(checked.get("status") or "") != "active":
         raise PrepareError("mapped_product_not_active")
@@ -209,14 +257,8 @@ def main() -> None:
         "webhookSubscriptionOk": subscription_ok,
         "publicReplyTemplateCount": 7,
         "gptApiUsed": False,
-        "secretsPrinted": False,
-        "accessTokensPrinted": False,
-        "rawWebhookPayloadPrinted": False,
     }
-    Path("jjabtree-live-mapping-result.json").write_text(
-        json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True), encoding="utf-8"
-    )
-    print(json.dumps(result, ensure_ascii=False))
+    write_result(result)
     summary = os.environ.get("GITHUB_STEP_SUMMARY", "").strip()
     if summary:
         with open(summary, "a", encoding="utf-8") as handle:
