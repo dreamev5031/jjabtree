@@ -1,0 +1,167 @@
+name: jjabtree token permission verify 20260807
+
+on:
+  push:
+    branches:
+      - ops/token-permission-verify-20260807
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: npm install --global @railway/cli@latest
+      - name: Verify deployment, permissions and safe probes
+        shell: bash
+        run: |
+          python - <<'PY'
+          import hashlib, hmac, json, subprocess, time, urllib.error, urllib.parse, urllib.request, secrets
+          from pathlib import Path
+
+          out=Path('jjabtree-token-permission-verify.json')
+          result={'ok':False,'secretsPrinted':False,'metaWriteCalls':0,'publicReplyCalls':0,'privateReplyCalls':0,'dmCalls':0}
+
+          def run_json(*args):
+              p=subprocess.run(args,text=True,capture_output=True)
+              if p.returncode!=0: raise RuntimeError('railway_command_failed')
+              return json.loads(p.stdout)
+          def walk(v):
+              if isinstance(v,dict):
+                  yield v
+                  for x in v.values(): yield from walk(x)
+              elif isinstance(v,list):
+                  for x in v: yield from walk(x)
+          def sid():
+              try: data=run_json('railway','service','list','--json')
+              except Exception: data=run_json('railway','status','--json')
+              c=[]
+              for i in walk(data):
+                  a=str(i.get('id') or i.get('serviceId') or '').strip(); n=str(i.get('name') or i.get('serviceName') or '').strip()
+                  if not a or not n: continue
+                  s=json.dumps(i,ensure_ascii=False).lower(); score=100 if n.lower()=='jjabtree' else 70 if n.lower()=='backend' else 50 if 'jjabtree' in n.lower() else 0
+                  if 'dreamev5031/jjabtree' in s: score+=150
+                  if score: c.append((score,a))
+              if c: return sorted(c,reverse=True)[0][1]
+              p={(str(i.get('id') or i.get('serviceId') or '').strip(),str(i.get('name') or i.get('serviceName') or '').strip()) for i in walk(data) if isinstance(i,dict)}
+              p=[x for x in p if all(x)]
+              if len(p)==1:return p[0][0]
+              raise RuntimeError('service_not_found')
+          def norm(v):
+              if isinstance(v,dict):return {str(k):str(x or '') for k,x in v.items()}
+              r={}
+              for i in v if isinstance(v,list) else []:
+                  if isinstance(i,dict):
+                      k=str(i.get('name') or i.get('key') or '')
+                      if k:r[k]=str(i.get('value') or '')
+              return r
+          def request(method,url,headers=None,body=None):
+              h={'Accept':'application/json',**(headers or {})}
+              if body is not None:h.setdefault('Content-Type','application/json')
+              q=urllib.request.Request(url,method=method,headers=h,data=body)
+              try:
+                  with urllib.request.urlopen(q,timeout=45) as r:
+                      raw=r.read();
+                      try:b=json.loads(raw.decode()) if raw else {}
+                      except Exception:b={}
+                      return r.status,b,raw
+              except urllib.error.HTTPError as e:
+                  raw=e.read()
+                  try:b=json.loads(raw.decode()) if raw else {}
+                  except Exception:b={}
+                  return e.code,b,raw
+          def meta_error(body):
+              e=body.get('error',{}) if isinstance(body,dict) else {}
+              return (e.get('code') if isinstance(e,dict) else None, e.get('error_subcode') if isinstance(e,dict) else None)
+          def fail(permission,msg,code=None):
+              result['failedPermission']=permission
+              result['safeError']=msg
+              result['metaCode']=code
+              raise RuntimeError('verification_failed')
+          def sign_forward(secret,timestamp,raw):
+              return 'sha256='+hmac.new(secret.encode(),str(timestamp).encode()+b'.'+raw,hashlib.sha256).hexdigest()
+
+          try:
+              service=sid()
+              deps=run_json('railway','deployment','list','--service',service,'--environment','production','--limit','20','--json')
+              dep=None
+              for i in walk(deps):
+                  did=str(i.get('id') or i.get('deploymentId') or '').strip(); st=str(i.get('status') or i.get('state') or '').upper().strip()
+                  if did and st:dep=(did,st);break
+              if not dep or dep[1]!='SUCCESS': raise RuntimeError('deployment_not_success')
+              v=norm(run_json('railway','variable','list','--service',service,'--environment','production','--json'))
+              token=v.get('IG_ACCESS_TOKEN','').strip(); account=v.get('IG_BUSINESS_ACCOUNT_ID','').strip()
+              if not token or not account:raise RuntimeError('instagram_credentials_missing')
+              domain=v.get('RAILWAY_PUBLIC_DOMAIN','').strip().strip('/')
+              if not domain:raise RuntimeError('public_domain_missing')
+              base='https://'+domain
+              hs,hb,_=request('GET',base+'/health')
+              if hs!=200 or not isinstance(hb,dict) or hb.get('ok') is not True:raise RuntimeError('health_failed')
+              admin=v.get('ADMIN_APP_KEY','').strip()
+              ps,pb,_=request('GET',base+'/api/admin/products',headers={'X-App-Key':admin})
+              products=pb.get('products',[]) if isinstance(pb,dict) else []
+              if ps!=200 or not isinstance(products,list):raise RuntimeError('product_lookup_failed')
+              media=''
+              for p in sorted([x for x in products if isinstance(x,dict)],key=lambda x:int(x.get('id') or 0),reverse=True):
+                  m=str(p.get('ig_media_id') or '').strip()
+                  if m:media=m;break
+              if not media:raise RuntimeError('target_media_missing')
+              api_base=v.get('IG_GRAPH_API_BASE_URL','https://graph.facebook.com').strip().rstrip('/')
+              ver=v.get('IG_GRAPH_API_VERSION','v25.0').strip() or 'v25.0'
+              if not ver.startswith('v'):ver='v'+ver
+              root=f'{api_base}/{ver}'
+              auth={'Authorization':'Bearer '+token}
+              a_status,a_body,_=request('GET',root+'/'+urllib.parse.quote(account)+'?fields=id,username',headers=auth)
+              a_code,_=meta_error(a_body)
+              if a_status!=200:fail('instagram_business_basic','Instagram account read failed',a_code)
+              c_status,c_body,_=request('GET',root+'/'+urllib.parse.quote(media)+'/comments?fields=id&limit=1',headers=auth)
+              c_code,_=meta_error(c_body)
+              if c_status!=200:fail('instagram_business_manage_comments','Instagram comments read failed',c_code)
+              m_status,m_body,_=request('GET',root+'/'+urllib.parse.quote(account)+'/conversations?platform=instagram&limit=1',headers=auth)
+              m_code,_=meta_error(m_body)
+              if m_status!=200:fail('instagram_business_manage_messages','Instagram conversations read failed',m_code)
+
+              verify=v.get('META_WEBHOOK_VERIFY_TOKEN','').strip(); challenge='ops-'+secrets.token_hex(8)
+              q=urllib.parse.urlencode({'hub.mode':'subscribe','hub.verify_token':verify,'hub.challenge':challenge})
+              cv,_,raw=request('GET',base+'/api/webhooks/instagram?'+q)
+              if cv!=200 or raw.decode()!=challenge:raise RuntimeError('callback_verify_failed')
+              empty=json.dumps({'object':'instagram','entry':[]},separators=(',',':')).encode()
+              app_secret=v.get('META_APP_SECRET','').strip(); sig='sha256='+hmac.new(app_secret.encode(),empty,hashlib.sha256).hexdigest()
+              cs,cb,_=request('POST',base+'/api/webhooks/instagram',headers={'X-Hub-Signature-256':sig},body=empty)
+              if cs!=200 or cb.get('comment_events')!=0:raise RuntimeError('callback_signed_probe_failed')
+
+              fsecret=v.get('WEBHOOK_FORWARD_SECRET','').strip(); abase=v.get('AUTOCARD_INTERNAL_BASE_URL','').strip().rstrip('/')
+              raw=json.dumps({'kind':'autocard-forward-secret-probe','source_project':'jjabtree-gateway'},separators=(',',':')).encode()
+              eid='ops-'+secrets.token_hex(12); now=int(time.time())
+              fh={'X-Autocard-Timestamp':str(now),'X-Autocard-Signature':sign_forward(fsecret,now,raw),'X-Autocard-Event-Id':eid}
+              fs,fb,_=request('POST',abase+'/api/internal/instagram/forward-probe',headers=fh,body=raw)
+              if fs!=200 or fb.get('matched') is not True:raise RuntimeError('forward_signed_probe_failed')
+              now2=int(time.time()); fh2={'X-Autocard-Timestamp':str(now2),'X-Autocard-Signature':sign_forward(fsecret,now2,raw),'X-Autocard-Event-Id':eid}
+              rs,_,_=request('POST',abase+'/api/internal/instagram/forward-probe',headers=fh2,body=raw)
+              if rs!=409:raise RuntimeError('forward_replay_not_rejected')
+
+              result.update({'ok':True,'deploymentStatus':dep[1],'healthStatus':hs,'tokenFingerprint':hashlib.sha256(token.encode()).hexdigest()[:16],
+                'accountReadStatus':a_status,'commentsReadStatus':c_status,'messagesReadStatus':m_status,'metaCode190Removed':all(x!=190 for x in (a_code,c_code,m_code)),
+                'manageCommentsVerified':True,'manageMessagesVerified':True,'callbackPath':'/api/webhooks/instagram','callbackPathUnchanged':True,
+                'callbackSignedProbeStatus':cs,'forwardSignedProbeStatus':fs,'forwardReplayStatus':rs})
+          except Exception as e:
+              if 'safeError' not in result:result['safeError']=str(e)[:120]
+          out.write_text(json.dumps(result,ensure_ascii=False,indent=2,sort_keys=True),encoding='utf-8')
+          if not result['ok']:raise SystemExit(1)
+          PY
+      - name: Upload sanitized result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: jjabtree-token-permission-verify-20260807
+          path: jjabtree-token-permission-verify.json
+          if-no-files-found: error
+          retention-days: 3
