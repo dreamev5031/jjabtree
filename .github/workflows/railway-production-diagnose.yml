@@ -1,0 +1,64 @@
+name: jjabtree Railway Production Diagnose
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_sha:
+        description: Railway deployment commit SHA to diagnose
+        required: true
+        default: "06ba10b2fccb4c9a9f06a9767c2bbfa5a44053d6"
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: jjabtree-railway-production-diagnose
+  cancel-in-progress: false
+
+jobs:
+  diagnose:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (
+        github.event.workflow_run.conclusion == 'success' &&
+        github.event.workflow_run.head_branch == 'main' &&
+        contains(github.event.workflow_run.display_title, '[railway-diagnose]')
+      )
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+      TARGET_SHA: ${{ github.event_name == 'workflow_dispatch' && inputs.target_sha || '06ba10b2fccb4c9a9f06a9767c2bbfa5a44053d6' }}
+    steps:
+      - name: Checkout diagnostic runner
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Railway CLI
+        run: npm install --global @railway/cli@latest
+
+      - name: Compile diagnostic runner
+        run: python -m py_compile .github/scripts/railway_production_diagnose.py
+
+      - name: Diagnose failed production deployment
+        run: >-
+          python .github/scripts/railway_production_diagnose.py
+          --target-sha "$TARGET_SHA"
+          --output jjabtree-railway-diagnosis.json
+
+      - name: Upload sanitized diagnosis
+        if: always() && hashFiles('jjabtree-railway-diagnosis.json') != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: jjabtree-railway-diagnosis-${{ env.TARGET_SHA }}
+          path: jjabtree-railway-diagnosis.json
+          if-no-files-found: error
+          retention-days: 30
