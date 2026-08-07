@@ -1,0 +1,45 @@
+name: jjabtree Live Manifest Export
+
+on:
+  push:
+    branches:
+      - "ops/live-manifest-export-*"
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+    steps:
+      - name: Checkout manifest branch
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Railway CLI
+        run: npm install --global @railway/cli@latest
+
+      - name: Compile exporter
+        run: >-
+          python -m py_compile
+          .github/scripts/jjabtree_c_stage_finalize.py
+          .github/scripts/live_manifest_export.py
+
+      - name: Export sanitized live manifest
+        run: python .github/scripts/live_manifest_export.py
+
+      - name: Upload sanitized manifest
+        uses: actions/upload-artifact@v4
+        with:
+          name: jjabtree-live-manifest-${{ github.sha }}
+          path: jjabtree-live-manifest.json
+          if-no-files-found: error
+          retention-days: 7
