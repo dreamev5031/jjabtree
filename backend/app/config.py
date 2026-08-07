@@ -13,9 +13,7 @@ class ConfigurationError(RuntimeError):
 def _required(name: str) -> str:
     value = os.environ.get(name, "").strip()
     if not value:
-        raise ConfigurationError(
-            f"필수 환경변수 {name}가 설정되지 않았습니다. README의 환경변수 설정을 확인하세요."
-        )
+        raise ConfigurationError(f"필수 환경변수 {name}가 설정되지 않았습니다. README의 환경변수 설정을 확인하세요.")
     return value
 
 
@@ -52,7 +50,9 @@ class Settings:
     graph_api_version: str
     graph_api_base_url: str
     webhook_verify_token: str
-    meta_app_secret: str | None
+    meta_app_secret: str
+    webhook_forward_secret: str | None
+    autocard_internal_base_url: str | None
     cors_origins: list[str]
     public_site_url: str
     media_check_hour: int = 5
@@ -61,25 +61,28 @@ class Settings:
     def from_env(cls) -> "Settings":
         db_path = Path(os.environ.get("DB_PATH", "./data/jjabtree.db")).expanduser()
         upload_default = str(db_path.parent / "uploads")
-        admin_key = _required("ADMIN_APP_KEY")
         version = os.environ.get("IG_GRAPH_API_VERSION", "v25.0").strip() or "v25.0"
         if not version.startswith("v"):
             version = f"v{version}"
+        forward_secret = os.environ.get("WEBHOOK_FORWARD_SECRET", "").strip() or None
+        forward_url = os.environ.get("AUTOCARD_INTERNAL_BASE_URL", "").strip() or None
+        if bool(forward_secret) != bool(forward_url):
+            raise ConfigurationError("WEBHOOK_FORWARD_SECRET과 AUTOCARD_INTERNAL_BASE_URL은 함께 설정해야 합니다.")
+        if forward_url:
+            forward_url = _http_url("AUTOCARD_INTERNAL_BASE_URL", forward_url)
 
         return cls(
             ig_access_token=_required("IG_ACCESS_TOKEN"),
             ig_business_account_id=_required("IG_BUSINESS_ACCOUNT_ID"),
-            admin_app_key=admin_key,
+            admin_app_key=_required("ADMIN_APP_KEY"),
             db_path=db_path,
             upload_dir=Path(os.environ.get("UPLOAD_DIR", upload_default)).expanduser(),
             graph_api_version=version,
-            graph_api_base_url=os.environ.get(
-                "IG_GRAPH_API_BASE_URL", "https://graph.facebook.com"
-            ).rstrip("/"),
-            webhook_verify_token=os.environ.get(
-                "META_WEBHOOK_VERIFY_TOKEN", admin_key
-            ).strip(),
-            meta_app_secret=os.environ.get("META_APP_SECRET") or None,
+            graph_api_base_url=os.environ.get("IG_GRAPH_API_BASE_URL", "https://graph.facebook.com").rstrip("/"),
+            webhook_verify_token=_required("META_WEBHOOK_VERIFY_TOKEN"),
+            meta_app_secret=_required("META_APP_SECRET"),
+            webhook_forward_secret=forward_secret,
+            autocard_internal_base_url=forward_url,
             cors_origins=_csv("CORS_ORIGINS", "*"),
             public_site_url=_http_url("PUBLIC_SITE_URL", "https://jjabtree.pages.dev"),
             media_check_hour=_hour("MEDIA_CHECK_HOUR", 5),
