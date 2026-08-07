@@ -1,0 +1,36 @@
+{
+  "accessTokensPrinted": false,
+  "ok": false,
+  "rawResponsesPrinted": false,
+  "secretsPrinted": false,
+  "variants": {
+    "accountMedia": {
+      "code": null,
+      "isTransient": false,
+      "status": 200,
+      "subcode": null,
+      "type": null
+    },
+    "facebookBearer": {
+      "code": "190",
+      "isTransient": false,
+      "status": 401,
+      "subcode": null,
+      "type": "OAuthException"
+    },
+    "instagramBearer": {
+      "code": "100",
+      "isTransient": false,
+      "status": 400,
+      "subcode": "33",
+      "type": "IGApiException"
+    },
+    "instagramQueryToken": {
+      "code": "100",
+      "isTransient": false,
+      "status": 400,
+      "subcode": "33",
+      "type": "IGApiException"
+    }
+  }
+}
