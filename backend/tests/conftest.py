@@ -6,10 +6,11 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-# app.main intentionally fails fast when required production variables are missing.
 os.environ.setdefault("IG_ACCESS_TOKEN", "test-token")
 os.environ.setdefault("IG_BUSINESS_ACCOUNT_ID", "17841400000000000")
 os.environ.setdefault("ADMIN_APP_KEY", "test-admin-key")
+os.environ.setdefault("META_WEBHOOK_VERIFY_TOKEN", "verify-me")
+os.environ.setdefault("META_APP_SECRET", "test-meta-app-secret")
 os.environ.setdefault("PUBLIC_SITE_URL", "https://jjabtree.pages.dev")
 
 from app.config import Settings  # noqa: E402
@@ -27,7 +28,9 @@ def settings(tmp_path: Path) -> Settings:
         graph_api_version="v25.0",
         graph_api_base_url="https://graph.facebook.com",
         webhook_verify_token="verify-me",
-        meta_app_secret=None,
+        meta_app_secret="test-meta-app-secret",
+        webhook_forward_secret=None,
+        autocard_internal_base_url=None,
         cors_origins=["*"],
         public_site_url="https://jjabtree.pages.dev",
     )
